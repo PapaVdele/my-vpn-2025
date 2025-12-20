@@ -79,31 +79,4 @@ def get_top_cap(n=10):
 
 def get_top_growth(n=10):
     data = get_crypto_data()
-    if not data['all_coins']:
-        return "⚠️ Проблема с данными — попробуй позже"
-    msg = f"🚀 *Топ-{n} роста за 24ч:*\n\n"
-    sorted_growth = sorted(data['all_coins'], key=lambda x: x.get('price_change_percentage_24h', 0) or 0, reverse=True)[:n]
-    for i, coin in enumerate(sorted_growth, 1):
-        change = coin.get('price_change_percentage_24h', 0)
-        msg += f"{i}. *{coin['name']}* ({coin['symbol'].upper()}) — *{change:+.2f}%* ({format_price(coin['current_price'])})\n"
-    return msg
-
-def get_top_drop(n=10):
-    data = get_crypto_data()
-    if not data['all_coins']:
-        return "⚠️ Проблема с данными — попробуй позже"
-    msg = f"📉 *Топ-{n} падения за 24ч:*\n\n"
-    sorted_drop = sorted(data['all_coins'], key=lambda x: x.get('price_change_percentage_24h', 0) or 0)[:n]
-    for i, coin in enumerate(sorted_drop, 1):
-        change = coin.get('price_change_percentage_24h', 0)
-        msg += f"{i}. *{coin['name']}* ({coin['symbol'].upper()}) — *{change:+.2f}%* ({format_price(coin['current_price'])})\n"
-    return msg
-
-def create_daily_report():
-    data = get_crypto_data()
-    if not data['all_coins']:
-        return "⚠️ Проблема с данными — отчёт позже"
-    msg = "📊 *Ежедневный крипто-отчёт* 📊\n\n"
-    msg += "*Основные:*\n"
-    msg += f"🟠 BTC: ${data['btc_price']:,} {'📈' if data['btc_change'] > 0 else '📉'} *{data['btc_change']:+.2f}%*\n"
-    msg += f"🔷 ETH: ${data['eth_price']:,} {'
+    if not data['all_coins
