@@ -217,4 +217,62 @@ def handle_kurs(message):
 
 @bot.message_handler(commands=['топ'])
 def handle_top(message):
-    bot.send_message(message.chat.id
+    bot.send_message(message.chat.id, get_top_cap(10), parse_mode='Markdown')
+
+@bot.message_handler(commands=['рост'])
+def handle_growth(message):
+    bot.send_message(message.chat.id, get_top_growth(10), parse_mode='Markdown')
+
+@bot.message_handler(commands=['падение'])
+def handle_drop(message):
+    bot.send_message(message.chat.id, get_top_drop(10), parse_mode='Markdown')
+
+@bot.message_handler(commands=['алерт'])
+def handle_alert(message):
+    alert = get_anomaly_alerts()
+    if alert:
+        bot.send_message(message.chat.id, alert, parse_mode='Markdown')
+    else:
+        bot.send_message(message.chat.id, "😴 Сейчас нет значимых аномалий — рынок спокойный.")
+
+@bot.message_handler(commands=['помощь', 'help'])
+def handle_help(message):
+    help_text = """
+🤖 *КриптоАСИСТ — твой соратник в 'Криптобомжах'*
+
+Команды:
+• /курс — ежедневный отчёт
+• /топ — топ-10 по капитализации
+• /рост — топ роста
+• /падение — топ падения
+• /алерт — аномалии объёмов
+• /помощь — это
+
+Просто пиши — отвечу по-бомжески 😈
+"""
+    bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
+
+def daily_report():
+    bot.send_message(GROUP_CHAT_ID, create_daily_report(), parse_mode='Markdown')
+
+def anomaly_check():
+    alert = get_anomaly_alerts()
+    if alert:
+        bot.send_message(GROUP_CHAT_ID, alert, parse_mode='Markdown')
+
+def run_scheduler():
+    schedule.every().day.at("06:55").do(daily_report)
+    schedule.every().hour.do(anomaly_check)
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+
+if __name__ == '__main__':
+    print("КриптоАСИСТ ожил — теперь с душой бомжа! 😈")
+    threading.Thread(target=run_scheduler, daemon=True).start()
+    while True:
+        try:
+            bot.infinity_polling(none_stop=True, interval=0, timeout=30)
+        except Exception as e:
+            print(f"Polling упал: {e}. Перезапуск...")
+            time.sleep(10)
