@@ -186,7 +186,7 @@ def get_anomaly_alerts():
 def ask_groq(question):
     try:
         completion = client.chat.completions.create(
-            model="llama3-70b-8192",
+            model="llama-3.1-70b-versatile",
             messages=[
                 {"role": "system", "content": "Ты — циничный, остроумный криптобомж из чата 'Криптобомжи'. Отвечай кратко, по делу, с чёрным юмором, матом если уместно, сленгом. Будь своим — подкалывай, радуйся пампам, грусти по дампам. Всегда на русском."},
                 {"role": "user", "content": question}
