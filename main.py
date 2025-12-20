@@ -4,15 +4,12 @@ import schedule
 import time
 import threading
 from datetime import datetime, timedelta
-from groq import Groq
 import os
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID'))
-GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')  # fallback на твой ID
 
 bot = telebot.TeleBot(BOT_TOKEN)
-client = Groq(api_key=GROQ_API_KEY)
 
 last_alerts = {}
 
@@ -183,34 +180,6 @@ def get_anomaly_alerts():
 
     return "\n\n".join(alerts) if alerts else None
 
-def ask_groq(question):
-    try:
-        completion = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
-            messages=[
-                {"role": "system", "content": "Ты — циничный, остроумный криптобомж из чата 'Криптобомжи'. Отвечай кратко, по делу, с чёрным юмором, матом если уместно, сленгом. Будь своим — подкалывай, радуйся пампам, грусти по дампам. Всегда на русском."},
-                {"role": "user", "content": question}
-            ],
-            temperature=0.9,
-            max_tokens=300
-        )
-        return completion.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"Groq ошибка: {e}")
-        return "Groq сегодня в отключке... Попробуй позже 😅"
-
-@bot.message_handler(func=lambda m: True)
-def handle_all(message):
-    if message.text and message.text.startswith('/'):
-        return
-    if message.from_user.is_bot:
-        return
-    if not message.text or len(message.text.strip()) < 3:
-        return
-
-    reply = ask_groq(message.text)
-    bot.reply_to(message, reply)
-
 @bot.message_handler(commands=['курс'])
 def handle_kurs(message):
     bot.send_message(message.chat.id, create_daily_report(), parse_mode='Markdown')
@@ -247,8 +216,6 @@ def handle_help(message):
 • /падение — топ падения
 • /алерт — аномалии объёмов
 • /помощь — это
-
-Просто пиши — отвечу по-бомжески 😈
 """
     bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
 
@@ -268,7 +235,7 @@ def run_scheduler():
         time.sleep(1)
 
 if __name__ == '__main__':
-    print("КриптоАСИСТ ожил — теперь с душой бомжа! 😈")
+    print("КриптоАСИСТ ожил! 😈")
     threading.Thread(target=run_scheduler, daemon=True).start()
     while True:
         try:
