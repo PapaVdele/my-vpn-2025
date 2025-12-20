@@ -197,4 +197,24 @@ def ask_groq(question):
         return completion.choices[0].message.content.strip()
     except Exception as e:
         print(f"Groq ошибка: {e}")
-        return "Groq
+        return "Groq сегодня в отключке... Попробуй позже 😅"
+
+@bot.message_handler(func=lambda m: True)
+def handle_all(message):
+    if message.text and message.text.startswith('/'):
+        return
+    if message.from_user.is_bot:
+        return
+    if not message.text or len(message.text.strip()) < 3:
+        return
+
+    reply = ask_groq(message.text)
+    bot.reply_to(message, reply)
+
+@bot.message_handler(commands=['курс'])
+def handle_kurs(message):
+    bot.send_message(message.chat.id, create_daily_report(), parse_mode='Markdown')
+
+@bot.message_handler(commands=['топ'])
+def handle_top(message):
+    bot.send_message(message.chat.id
