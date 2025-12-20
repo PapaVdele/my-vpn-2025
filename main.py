@@ -79,4 +79,122 @@ def get_top_cap(n=10):
 
 def get_top_growth(n=10):
     data = get_crypto_data()
-    if not data['all_coins
+    if not data['all_coins']:
+        return "⚠️ Проблема с данными — попробуй позже"
+    msg = f"🚀 *Топ-{n} роста за 24ч:*\n\n"
+    sorted_growth = sorted(data['all_coins'], key=lambda x: x.get('price_change_percentage_24h', 0) or 0, reverse=True)[:n]
+    for i, coin in enumerate(sorted_growth, 1):
+        change = coin.get('price_change_percentage_24h', 0)
+        msg += f"{i}. *{coin['name']}* ({coin['symbol'].upper()}) — *{change:+.2f}%* ({format_price(coin['current_price'])})\n"
+    return msg
+
+def get_top_drop(n=10):
+    data = get_crypto_data()
+    if not data['all_coins']:
+        return "⚠️ Проблема с данными — попробуй позже"
+    msg = f"📉 *Топ-{n} падения за 24ч:*\n\n"
+    sorted_drop = sorted(data['all_coins'], key=lambda x: x.get('price_change_percentage_24h', 0) or 0)[:n]
+    for i, coin in enumerate(sorted_drop, 1):
+        change = coin.get('price_change_percentage_24h', 0)
+        msg += f"{i}. *{coin['name']}* ({coin['symbol'].upper()}) — *{change:+.2f}%* ({format_price(coin['current_price'])})\n"
+    return msg
+
+def create_daily_report():
+    data = get_crypto_data()
+    if not data['all_coins']:
+        return "⚠️ Проблема с данными — отчёт позже"
+    msg = "📊 *Ежедневный крипто-отчёт* 📊\n\n"
+    msg += "*Основные:*\n"
+    msg += f"🟠 BTC: ${data['btc_price']:,} {'📈' if data['btc_change'] > 0 else '📉'} *{data['btc_change']:+.2f}%*\n"
+    msg += f"🔷 ETH: ${data['eth_price']:,} {'📈' if data['eth_change'] > 0 else '📉'} *{data['eth_change']:+.2f}%*\n"
+    msg += f"🟣 SOL: ${data['sol_price']:,} {'📈' if data['sol_change'] > 0 else '📉'} *{data['sol_change']:+.2f}%*\n\n"
+    msg += "🚀 *Топ-3 роста:*\n"
+    for i, coin in enumerate(data['top_growth'], 1):
+        change = coin.get('price_change_percentage_24h', 0)
+        msg += f"{i}. *{coin['name']}* ({coin['symbol'].upper()}) — *{change:+.2f}%* ({format_price(coin['current_price'])})\n"
+    msg += "\n📉 *Топ-3 падения:*\n"
+    for i, coin in enumerate(data['top_drop'], 1):
+        change = coin.get('price_change_percentage_24h', 0)
+        msg += f"{i}. *{coin['name']}* ({coin['symbol'].upper()}) — *{change:+.2f}%* ({format_price(coin['current_price'])})\n"
+    msg += "\n_Источник: CoinGecko_"
+    return msg
+
+def get_anomaly_alerts():
+    data = get_crypto_data()
+    if not data['all_coins']:
+        return None
+
+    alerts = []
+    current_time = datetime.now()
+
+    for coin in data['all_coins']:
+        volume = coin.get('total_volume', 0)
+        price_change = coin.get('price_change_percentage_24h', 0) or 0
+        market_cap = coin.get('market_cap', 1)
+        ath_change = coin.get('ath_change_percentage', 0) or 0
+        price = coin.get('current_price', 0)
+        coin_id = coin['id']
+
+        if not (volume > 10_000_000 and market_cap > 50_000_000):
+            continue
+
+        last = last_alerts.get(coin_id)
+
+        if last:
+            time_diff = current_time - last['time']
+            if time_diff < timedelta(hours=3):
+                continue
+
+            price_diff = ((price - last['price']) / last['price']) * 100 if last['price'] > 0 else 0
+            volume_diff = ((volume - last['volume']) / last['volume']) * 100 if last['volume'] > 0 else 0
+
+            if abs(price_diff) < 8 and abs(volume_diff) < 20:
+                continue
+
+            price_str = f"{price_diff:+.2f}% с прошлого сигнала (было ${format_price(last['price'])})"
+            volume_str = f"{volume_diff:+.2f}% с прошлого сигнала"
+            status = "сигнал усиливается 🔥" if price_diff > 0 and volume_diff > 0 else "сигнал слабеет ⚠️"
+
+        else:
+            if not (-15 < price_change < 12 and volume > market_cap * 0.08):
+                continue
+            price_str = f"{price_change:+.2f}% за 24ч"
+            volume_str = "аномально высокий"
+            status = "новый сигнал — возможная аккумуляция!"
+
+        alert = f"🚨 *АНОМАЛЬНЫЙ ОБЪЁМ — {status}* 🚨\n\n"
+        alert += f"*{coin['name']}* ({coin['symbol'].upper()})\n"
+        alert += f"Цена: ${format_price(price)} ({price_str})\n"
+        alert += f"Объём 24h: ${volume:,.0f} ({volume_str})\n"
+        if ath_change < -80:
+            alert += f"На дне: {ath_change:.1f}% от ATH 🔥\n"
+        alert += "\nКиты в деле — следим! 👀"
+
+        alerts.append(alert)
+
+        last_alerts[coin_id] = {
+            'time': current_time,
+            'price': price,
+            'volume': volume
+        }
+
+        if len(alerts) >= 4:
+            break
+
+    return "\n\n".join(alerts) if alerts else None
+
+def ask_groq(question):
+    try:
+        completion = client.chat.completions.create(
+            model="llama3-70b-8192",
+            messages=[
+                {"role": "system", "content": "Ты — циничный, остроумный криптобомж из чата 'Криптобомжи'. Отвечай кратко, по делу, с чёрным юмором, матом если уместно, сленгом. Будь своим — подкалывай, радуйся пампам, грусти по дампам. Всегда на русском."},
+                {"role": "user", "content": question}
+            ],
+            temperature=0.9,
+            max_tokens=300
+        )
+        return completion.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Groq ошибка: {e}")
+        return "Groq
