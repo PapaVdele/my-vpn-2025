@@ -182,10 +182,10 @@ def get_anomaly_alerts():
 
 def get_news():
     try:
-        url = "https://cointelegraph.com/rss"
+        url = "https://forklog.com/feed"  # русский источник
         feed = feedparser.parse(url)
         entries = feed.entries[:3]
-        msg = "📰 Топ-3 свежих новостей крипты:\n\n"
+        msg = "📰 Топ-3 свежих новостей крипты (ForkLog):\n\n"
         for i, entry in enumerate(entries, 1):
             title = entry.title
             link = entry.link
