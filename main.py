@@ -1,5 +1,3 @@
-import logging
-logging.basicConfig(level=logging.ERROR)
 import telebot
 import requests
 import schedule
@@ -7,7 +5,8 @@ import time
 import threading
 from datetime import datetime, timedelta
 import os
-import feedparser  # добавь в requirements.txt: feedparser
+import feedparser
+import random
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
@@ -64,49 +63,24 @@ def format_price(price):
         return f"${price:.8f}".rstrip('0').rstrip('.')
     return f"${price:,.2f}"
 
-def get_top_cap(n=10):
-    try:
-        url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1"
-        data = requests.get(url, timeout=15).json()
-        filtered = [coin for coin in data if not is_stable(coin)][:n]
-        msg = f"🏆 Топ-{n} по капитализации (без стейблов):\n\n"
-        for i, coin in enumerate(filtered, 1):
-            msg += f"{i}. {coin['symbol'].upper()}: {format_price(coin['current_price'])}\n"
-        return msg
-    except:
-        return "⚠️ Проблема с данными — попробуй позже"
-
-def get_top_growth(n=10):
-    data = get_crypto_data()
-    if not data['all_coins']:
-        return "⚠️ Проблема с данными — попробуй позже"
-    msg = f"🚀 Топ-{n} роста за 24ч:\n\n"
-    sorted_growth = sorted(data['all_coins'], key=lambda x: x.get('price_change_percentage_24h', 0) or 0, reverse=True)[:n]
-    for i, coin in enumerate(sorted_growth, 1):
-        change = coin.get('price_change_percentage_24h', 0)
-        msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
-    return msg
-
-def get_top_drop(n=10):
-    data = get_crypto_data()
-    if not data['all_coins']:
-        return "⚠️ Проблема с данными — попробуй позже"
-    msg = f"📉 Топ-{n} падения за 24ч:\n\n"
-    sorted_drop = sorted(data['all_coins'], key=lambda x: x.get('price_change_percentage_24h', 0) or 0)[:n]
-    for i, coin in enumerate(sorted_drop, 1):
-        change = coin.get('price_change_percentage_24h', 0)
-        msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
-    return msg
-
 def create_daily_report():
     data = get_crypto_data()
     if not data['all_coins']:
         return "⚠️ Проблема с данными — отчёт позже"
-    msg = "📊 Ежедневный крипто-отчёт 📊\n\n"
+    btc_change = data['btc_change']
+    if btc_change > 5:
+        title = "Криптопушка! 🚀 Бомжи, просыпаемся — рынок летит вверх!"
+    elif btc_change > 0:
+        title = "Криптопотрясение 📈 Тихий рост — киты шевелятся."
+    elif btc_change > -5:
+        title = "Криптостабильность 😐 Рынок дышит ровно — ждём импульса."
+    else:
+        title = "Криптообвал 📉 Бомжи, держимся — дно близко, отскок будет мощный!"
+    msg = f"{title}\n\n"
     msg += "Основные:\n"
-    msg += f"🟠 BTC: ${data['btc_price']:,} {'📈' if data['btc_change'] > 0 else '📉'} {data['btc_change']:+.2f}%\n"
-    msg += f"🔷 ETH: ${data['eth_price']:,} {'📈' if data['eth_change'] > 0 else '📉'} {data['eth_change']:+.2f}%\n"
-    msg += f"🟣 SOL: ${data['sol_price']:,} {'📈' if data['sol_change'] > 0 else '📉'} {data['sol_change']:+.2f}%\n\n"
+    msg += f"🟠 BTC: ${data['btc_price']:,} {btc_change:+.2f}%\n"
+    msg += f"🔷 ETH: ${data['eth_price']:,} {data['eth_change']:+.2f}%\n"
+    msg += f"🟣 SOL: ${data['sol_price']:,} {data['sol_change']:+.2f}%\n\n"
     msg += "🚀 Топ-3 роста:\n"
     for i, coin in enumerate(data['top_growth'], 1):
         change = coin.get('price_change_percentage_24h', 0)
@@ -126,6 +100,13 @@ def get_anomaly_alerts():
     alerts = []
     current_time = datetime.now()
 
+    fomo_phrases = [
+        "Бомжи, это ваш шанс выбраться из подвала! Киты уже грузят.",
+        "Не проспите — вчерашние сигналы уже дали памп. FOMO включён?",
+        "Киты в деле, а вы всё в фиате? Присмотритесь, пока не поздно 😏",
+        "Это не скам — это реальный аккумулятор. Кто урвёт — тот в пентхаус."
+    ]
+
     for coin in data['all_coins']:
         volume = coin.get('total_volume', 0)
         price_change = coin.get('price_change_percentage_24h', 0) or 0
@@ -134,11 +115,12 @@ def get_anomaly_alerts():
         price = coin.get('current_price', 0)
         coin_id = coin['id']
 
-        if not (volume > 10_000_000 and market_cap > 50_000_000):
+        if not (volume > 20000000 and market_cap > 100000000 and price > 0.001 and ath_change < -70):
             continue
 
         last = last_alerts.get(coin_id)
 
+        fomo = ""
         if last:
             time_diff = current_time - last['time']
             if time_diff < timedelta(hours=3):
@@ -154,20 +136,30 @@ def get_anomaly_alerts():
             volume_str = f"{volume_diff:+.2f}% с прошлого сигнала"
             status = "сигнал усиливается 🔥" if price_diff > 0 and volume_diff > 0 else "сигнал слабеет ⚠️"
 
+            if price_diff > 10:
+                fomo = f"\nС прошлого сигнала уже {price_diff:+.2f}%! Кто-то из бомжей урвал, а вы? 😏"
+
         else:
-            if not (-15 < price_change < 12 and volume > market_cap * 0.08):
+            if not (-15 < price_change < 12 and volume > market_cap * 0.1):
                 continue
             price_str = f"{price_change:+.2f}% за 24ч"
             volume_str = "аномально высокий"
             status = "новый сигнал — возможная аккумуляция!"
 
+        value = "Надёжный аккумулятор на дне — киты грузят, ждут отскока."
+
+        humor = random.choice(fomo_phrases)
+
         alert = f"🚨 АНОМАЛЬНЫЙ ОБЪЁМ — {status} 🚨\n\n"
         alert += f"{coin['name']} ({coin['symbol'].upper()})\n"
         alert += f"Цена: ${format_price(price)} ({price_str})\n"
         alert += f"Объём 24h: ${volume:,.0f} ({volume_str})\n"
-        if ath_change < -80:
+        alert += f"{value}\n"
+        if ath_change < -70:
             alert += f"На дне: {ath_change:.1f}% от ATH 🔥\n"
-        alert += "\nКиты в деле — следим! 👀"
+        alert += fomo
+        alert += f"\n{humor}\n"
+        alert += f"Ссылка: https://www.coingecko.com/en/coins/{coin_id}"
 
         alerts.append(alert)
 
@@ -177,14 +169,14 @@ def get_anomaly_alerts():
             'volume': volume
         }
 
-        if len(alerts) >= 4:
+        if len(alerts) >= 3:
             break
 
     return "\n\n".join(alerts) if alerts else None
 
 def get_news():
     try:
-        url = "https://forklog.com/feed"  # русский источник
+        url = "https://forklog.com/feed"
         feed = feedparser.parse(url)
         entries = feed.entries[:3]
         msg = "📰 Топ-3 свежих новостей крипты (ForkLog):\n\n"
@@ -220,7 +212,7 @@ def handle_alert(message):
     else:
         bot.send_message(message.chat.id, "😴 Сейчас нет значимых аномалий — рынок спокойный.")
 
-@bot.message_handler(commands=['новости', 'news'])
+@bot.message_handler(commands=['новости'])
 def handle_news(message):
     bot.send_message(message.chat.id, get_news())
 
@@ -231,18 +223,26 @@ def handle_help(message):
 
 Команды:
 • /курс — ежедневный отчёт
-• /топ — топ-10 по капитализации
+• /топ — топ капитализации
 • /рост — топ роста
 • /падение — топ падения
 • /алерт — аномалии объёмов
 • /новости — свежие новости крипты
 • /помощь — это
+
+Сигналы с FOMO — не проспи памп! 😈
 """
     bot.send_message(message.chat.id, help_text)
 
 def daily_report():
     try:
         bot.send_message(GROUP_CHAT_ID, create_daily_report())
+    except:
+        pass
+
+def news_report():
+    try:
+        bot.send_message(GROUP_CHAT_ID, get_news())
     except:
         pass
 
@@ -255,7 +255,8 @@ def anomaly_check():
             pass
 
 def run_scheduler():
-    schedule.every().day.at("06:55").do(daily_report)
+    schedule.every().day.at("06:55").do(daily_report)  # 10:00 МСК
+    schedule.every().day.at("07:55").do(news_report)  # Через час после отчёта
     schedule.every().hour.do(anomaly_check)
     while True:
         schedule.run_pending()
@@ -264,4 +265,4 @@ def run_scheduler():
 if __name__ == '__main__':
     print("КриптоАСИСТ ожил! 😈")
     threading.Thread(target=run_scheduler, daemon=True).start()
-    bot.infinity_polling(none_stop=True)
+    bot.infinity_polling(none_stop=True, timeout=30, long_polling_timeout=30)
