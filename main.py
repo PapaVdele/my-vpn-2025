@@ -5,6 +5,7 @@ import time
 import threading
 from datetime import datetime, timedelta
 import os
+import random
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
@@ -51,7 +52,7 @@ def get_crypto_data():
             'top_growth': top_growth,
             'top_drop': top_drop
         }
-    except:
+    except Exception as e:
         return {'all_coins': [], 'top_growth': [], 'top_drop': []}
 
 def format_price(price):
@@ -99,9 +100,18 @@ def create_daily_report():
     data = get_crypto_data()
     if not data['all_coins']:
         return "⚠️ Проблема с данными — отчёт позже"
-    msg = "📊 Ежедневный крипто-отчёт 📊\n\n"
+    btc_change = data['btc_change']
+    if btc_change > 5:
+        title = "Криптопушка! 🚀"
+    elif btc_change > 0:
+        title = "Криптопотрясение 📈"
+    elif btc_change > -5:
+        title = "Криптостабильность 😐"
+    else:
+        title = "Криптообвал 📉"
+    msg = f"{title}\n\n"
     msg += "Основные:\n"
-    msg += f"🟠 BTC: ${data['btc_price']:,} {data['btc_change']:+.2f}%\n"
+    msg += f"🟠 BTC: ${data['btc_price']:,} {btc_change:+.2f}%\n"
     msg += f"🔷 ETH: ${data['eth_price']:,} {data['eth_change']:+.2f}%\n"
     msg += f"🟣 SOL: ${data['sol_price']:,} {data['sol_change']:+.2f}%\n\n"
     msg += "🚀 Топ-3 роста:\n"
@@ -115,6 +125,17 @@ def create_daily_report():
     msg += "\nИсточник: CoinGecko"
     return msg
 
+def get_news():
+    try:
+        url = "https://cryptopanic.com/api/v1/posts/?auth_token=free&currencies=BTC,ETH,SOL&kind=news&filter=hot"
+        data = requests.get(url).json()['results'][:3]
+        news_msg = "Топ-3 новости крипты сегодня:\n\n"
+        for i, news in enumerate(data, 1):
+            news_msg += f"{i}. {news['title']}\n{news['url']}\n\n"
+        return news_msg
+    except:
+        return "Проблема с новостями — попробуй позже"
+
 def get_anomaly_alerts():
     data = get_crypto_data()
     if not data['all_coins']:
@@ -122,6 +143,8 @@ def get_anomaly_alerts():
 
     alerts = []
     current_time = datetime.now()
+
+    humor_phrases = ["Бомжи, просыпайтесь! Вот монета для вашего портфеля.", "Эй, бездомные миллионеры, присмотритесь — это может быть ваш билет в пентхаус.", "Не скам, а реальный шанс! Киты накопили, ждут пампа."]
 
     for coin in data['all_coins']:
         volume = coin.get('total_volume', 0)
@@ -131,11 +154,12 @@ def get_anomaly_alerts():
         price = coin.get('current_price', 0)
         coin_id = coin['id']
 
-        if not (volume > 10_000_000 and market_cap > 50_000_000):
+        if not (volume > 20000000 and market_cap > 100000000 and price > 0.001 and ath_change < -80):
             continue
 
         last = last_alerts.get(coin_id)
 
+        fomo = ""
         if last:
             time_diff = current_time - last['time']
             if time_diff < timedelta(hours=3):
@@ -151,20 +175,28 @@ def get_anomaly_alerts():
             volume_str = f"{volume_diff:+.2f}% с прошлого сигнала"
             status = "сигнал усиливается 🔥" if price_diff > 0 and volume_diff > 0 else "сигнал слабеет ⚠️"
 
+            if price_diff > 10:
+                fomo = f"С сигнала {int(time_diff.days)} дней назад дал {price_diff:+.2f}%! Надеюсь, бомжи урвали свой пакет? :D"
+
         else:
-            if not (-15 < price_change < 12 and volume > market_cap * 0.08):
+            if not (-15 < price_change < 12 and volume > market_cap * 0.1):
                 continue
             price_str = f"{price_change:+.2f}% за 24ч"
             volume_str = "аномально высокий"
             status = "новый сигнал — возможная аккумуляция!"
 
-        alert = f"🚨 *АНОМАЛЬНЫЙ ОБЁМ — {status}* 🚨\n\n"
-        alert += f"*{coin['name']}* ({coin['symbol'].upper()})\n"
+        value_explain = f"Ценный актив: на дне {ath_change:.1f}% от ATH, накопил объём {volume_str}. Если как TRX — надёжный рост, не скам."
+
+        humor = random.choice(humor_phrases)
+
+        alert = f"🚨 АНОМАЛЬНЫЙ ОБЁМ — {status} 🚨\n\n"
+        alert += f"{coin['name']} ({coin['symbol'].upper()})\n"
         alert += f"Цена: ${format_price(price)} ({price_str})\n"
         alert += f"Объём 24h: ${volume:,.0f} ({volume_str})\n"
-        if ath_change < -80:
-            alert += f"На дне: {ath_change:.1f}% от ATH 🔥\n"
-        alert += "\nКиты в деле — следим! 👀"
+        alert += value_explain + "\n"
+        alert += fomo + "\n" if fomo else ""
+        alert += humor + "\n"
+        alert += f"Ссылка: https://www.coingecko.com/en/coins/{coin_id}"
 
         alerts.append(alert)
 
@@ -174,60 +206,66 @@ def get_anomaly_alerts():
             'volume': volume
         }
 
-        if len(alerts) >= 4:
+        if len(alerts) >= 3:
             break
 
     return "\n\n".join(alerts) if alerts else None
 
 @bot.message_handler(commands=['курс'])
 def handle_kurs(message):
-    bot.send_message(message.chat.id, create_daily_report(), parse_mode='Markdown')
+    bot.send_message(message.chat.id, create_daily_report())
 
 @bot.message_handler(commands=['топ'])
 def handle_top(message):
-    bot.send_message(message.chat.id, get_top_cap(10), parse_mode='Markdown')
+    bot.send_message(message.chat.id, get_top_cap(10))
 
 @bot.message_handler(commands=['рост'])
 def handle_growth(message):
-    bot.send_message(message.chat.id, get_top_growth(10), parse_mode='Markdown')
+    bot.send_message(message.chat.id, get_top_growth(10))
 
 @bot.message_handler(commands=['падение'])
 def handle_drop(message):
-    bot.send_message(message.chat.id, get_top_drop(10), parse_mode='Markdown')
+    bot.send_message(message.chat.id, get_top_drop(10))
 
 @bot.message_handler(commands=['алерт'])
 def handle_alert(message):
     alert = get_anomaly_alerts()
     if alert:
-        bot.send_message(message.chat.id, alert, parse_mode='Markdown')
+        bot.send_message(message.chat.id, alert)
     else:
-        bot.send_message(message.chat.id, "😴 Сейчас нет значимых аномалий — рынок спокойный.")
+        bot.send_message(message.chat.id, "Сейчас нет значимых аномалий — рынок спокойный.")
 
 @bot.message_handler(commands=['помощь', 'help'])
 def handle_help(message):
     help_text = """
-🤖 *КриптоАСИСТ — твой соратник в 'Криптобомжах'*
+КриптоАСИСТ — твоя криптошкола в 'Криптобомжах'
 
 Команды:
-• /курс — ежедневный отчёт
-• /топ — топ-10 по капитализации
+• /курс — отчёт по рынку
+• /топ — топ капитализации
 • /рост — топ роста
 • /падение — топ падения
-• /алерт — аномалии объёмов
+• /алерт — аномалии с анализом
 • /помощь — это
+
+Сигналы учат рынку, новости — миру крипты. Не скам, а рост! 😈
 """
-    bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
+    bot.send_message(message.chat.id, help_text)
 
 def daily_report():
-    bot.send_message(GROUP_CHAT_ID, create_daily_report(), parse_mode='Markdown')
+    bot.send_message(GROUP_CHAT_ID, create_daily_report())
+
+def news_report():
+    bot.send_message(GROUP_CHAT_ID, get_news())
 
 def anomaly_check():
     alert = get_anomaly_alerts()
     if alert:
-        bot.send_message(GROUP_CHAT_ID, alert, parse_mode='Markdown')
+        bot.send_message(GROUP_CHAT_ID, alert)
 
 def run_scheduler():
-    schedule.every().day.at("06:55").do(daily_report)
+    schedule.every().day.at("07:00").do(daily_report)  # 10:00 МСК = 07:00 UTC
+    schedule.every().day.at("08:00").do(news_report)  # Через час после отчёта
     schedule.every().hour.do(anomaly_check)
     while True:
         schedule.run_pending()
