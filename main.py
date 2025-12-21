@@ -237,15 +237,21 @@ def handle_help(message):
     bot.send_message(message.chat.id, help_text)
 
 def daily_report():
-    bot.send_message(GROUP_CHAT_ID, create_daily_report())
+    try:
+        bot.send_message(GROUP_CHAT_ID, create_daily_report())
+    except:
+        pass
 
 def anomaly_check():
     alert = get_anomaly_alerts()
     if alert:
-        bot.send_message(GROUP_CHAT_ID, alert)
+        try:
+            bot.send_message(GROUP_CHAT_ID, alert)
+        except:
+            pass
 
 def run_scheduler():
-    schedule.every().day.at("06:55").do(daily_report)  # 10:00 МСК
+    schedule.every().day.at("06:55").do(daily_report)
     schedule.every().hour.do(anomaly_check)
     while True:
         schedule.run_pending()
