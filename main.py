@@ -66,18 +66,18 @@ def get_top_cap(n=10):
         url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1"
         data = requests.get(url, timeout=15).json()
         filtered = [coin for coin in data if not is_stable(coin)][:n]
-        msg = f"Топ-{n} по капитализации (без стейблов):\n\n"
+        msg = f"🏆 Топ-{n} по капитализации (без стейблов):\n\n"
         for i, coin in enumerate(filtered, 1):
             msg += f"{i}. {coin['symbol'].upper()}: {format_price(coin['current_price'])}\n"
         return msg
     except:
-        return "Проблема с данными — попробуй позже"
+        return "⚠️ Проблема с данными — попробуй позже"
 
 def get_top_growth(n=10):
     data = get_crypto_data()
     if not data['all_coins']:
-        return "Проблема с данными — попробуй позже"
-    msg = f"Топ-{n} роста за 24ч:\n\n"
+        return "⚠️ Проблема с данными — попробуй позже"
+    msg = f"🚀 Топ-{n} роста за 24ч:\n\n"
     sorted_growth = sorted(data['all_coins'], key=lambda x: x.get('price_change_percentage_24h', 0) or 0, reverse=True)[:n]
     for i, coin in enumerate(sorted_growth, 1):
         change = coin.get('price_change_percentage_24h', 0)
@@ -87,8 +87,8 @@ def get_top_growth(n=10):
 def get_top_drop(n=10):
     data = get_crypto_data()
     if not data['all_coins']:
-        return "Проблема с данными — попробуй позже"
-    msg = f"Топ-{n} падения за 24ч:\n\n"
+        return "⚠️ Проблема с данными — попробуй позже"
+    msg = f"📉 Топ-{n} падения за 24ч:\n\n"
     sorted_drop = sorted(data['all_coins'], key=lambda x: x.get('price_change_percentage_24h', 0) or 0)[:n]
     for i, coin in enumerate(sorted_drop, 1):
         change = coin.get('price_change_percentage_24h', 0)
@@ -98,17 +98,17 @@ def get_top_drop(n=10):
 def create_daily_report():
     data = get_crypto_data()
     if not data['all_coins']:
-        return "Проблема с данными — отчёт позже"
-    msg = "Ежедневный крипто-отчёт\n\n"
+        return "⚠️ Проблема с данными — отчёт позже"
+    msg = "📊 Ежедневный крипто-отчёт 📊\n\n"
     msg += "Основные:\n"
-    msg += f"BTC: ${data['btc_price']:,} {data['btc_change']:+.2f}%\n"
-    msg += f"ETH: ${data['eth_price']:,} {data['eth_change']:+.2f}%\n"
-    msg += f"SOL: ${data['sol_price']:,} {data['sol_change']:+.2f}%\n\n"
-    msg += "Топ-3 роста:\n"
+    msg += f"🟠 BTC: ${data['btc_price']:,} {data['btc_change']:+.2f}%\n"
+    msg += f"🔷 ETH: ${data['eth_price']:,} {data['eth_change']:+.2f}%\n"
+    msg += f"🟣 SOL: ${data['sol_price']:,} {data['sol_change']:+.2f}%\n\n"
+    msg += "🚀 Топ-3 роста:\n"
     for i, coin in enumerate(data['top_growth'], 1):
         change = coin.get('price_change_percentage_24h', 0)
         msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
-    msg += "\nТоп-3 падения:\n"
+    msg += "\n📉 Топ-3 падения:\n"
     for i, coin in enumerate(data['top_drop'], 1):
         change = coin.get('price_change_percentage_24h', 0)
         msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
@@ -158,8 +158,8 @@ def get_anomaly_alerts():
             volume_str = "аномально высокий"
             status = "новый сигнал — возможная аккумуляция!"
 
-        alert = f"АНОМАЛЬНЫЙ ОБЪЁМ — {status}\n\n"
-        alert += f"{coin['name']} ({coin['symbol'].upper()})\n"
+        alert = f"🚨 *АНОМАЛЬНЫЙ ОБЁМ — {status}* 🚨\n\n"
+        alert += f"*{coin['name']}* ({coin['symbol'].upper()})\n"
         alert += f"Цена: ${format_price(price)} ({price_str})\n"
         alert += f"Объём 24h: ${volume:,.0f} ({volume_str})\n"
         if ath_change < -80:
@@ -181,32 +181,32 @@ def get_anomaly_alerts():
 
 @bot.message_handler(commands=['курс'])
 def handle_kurs(message):
-    bot.send_message(message.chat.id, create_daily_report())
+    bot.send_message(message.chat.id, create_daily_report(), parse_mode='Markdown')
 
 @bot.message_handler(commands=['топ'])
 def handle_top(message):
-    bot.send_message(message.chat.id, get_top_cap(10))
+    bot.send_message(message.chat.id, get_top_cap(10), parse_mode='Markdown')
 
 @bot.message_handler(commands=['рост'])
 def handle_growth(message):
-    bot.send_message(message.chat.id, get_top_growth(10))
+    bot.send_message(message.chat.id, get_top_growth(10), parse_mode='Markdown')
 
 @bot.message_handler(commands=['падение'])
 def handle_drop(message):
-    bot.send_message(message.chat.id, get_top_drop(10))
+    bot.send_message(message.chat.id, get_top_drop(10), parse_mode='Markdown')
 
 @bot.message_handler(commands=['алерт'])
 def handle_alert(message):
     alert = get_anomaly_alerts()
     if alert:
-        bot.send_message(message.chat.id, alert)
+        bot.send_message(message.chat.id, alert, parse_mode='Markdown')
     else:
-        bot.send_message(message.chat.id, "Сейчас нет значимых аномалий — рынок спокойный.")
+        bot.send_message(message.chat.id, "😴 Сейчас нет значимых аномалий — рынок спокойный.")
 
 @bot.message_handler(commands=['помощь', 'help'])
 def handle_help(message):
     help_text = """
-КриптоАСИСТ — твой аналитик
+🤖 *КриптоАСИСТ — твой соратник в 'Криптобомжах'*
 
 Команды:
 • /курс — ежедневный отчёт
@@ -216,21 +216,15 @@ def handle_help(message):
 • /алерт — аномалии объёмов
 • /помощь — это
 """
-    bot.send_message(message.chat.id, help_text)
+    bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
 
 def daily_report():
-    try:
-        bot.send_message(GROUP_CHAT_ID, create_daily_report())
-    except:
-        pass
+    bot.send_message(GROUP_CHAT_ID, create_daily_report(), parse_mode='Markdown')
 
 def anomaly_check():
     alert = get_anomaly_alerts()
     if alert:
-        try:
-            bot.send_message(GROUP_CHAT_ID, alert)
-        except:
-            pass
+        bot.send_message(GROUP_CHAT_ID, alert, parse_mode='Markdown')
 
 def run_scheduler():
     schedule.every().day.at("06:55").do(daily_report)
@@ -240,6 +234,5 @@ def run_scheduler():
         time.sleep(1)
 
 if __name__ == '__main__':
-    print("КриптоАСИСТ ожил! 😈")
     threading.Thread(target=run_scheduler, daemon=True).start()
-    bot.infinity_polling(none_stop=True, timeout=30, long_polling_timeout=30)
+    bot.infinity_polling(none_stop=True)
