@@ -69,13 +69,13 @@ def create_daily_report():
         return "⚠️ Проблема с данными — отчёт позже"
     btc_change = data['btc_change']
     if btc_change > 5:
-        title = "Криптопушка! 🚀 Бомжи, просыпаемся — рынок летит вверх!"
+        title = "Криптопушка! 🚀 Бомжи, рынок летит — время грузить мешки!"
     elif btc_change > 0:
-        title = "Криптопотрясение 📈 Тихий рост — киты шевелятся."
+        title = "Криптопотрясение 📈 Тихо растём — киты уже в деле."
     elif btc_change > -5:
-        title = "Криптостабильность 😐 Рынок дышит ровно — ждём импульса."
+        title = "Криптостабильность 😐 Рынок дышит — ждём импульса."
     else:
-        title = "Криптообвал 📉 Бомжи, держимся — дно близко, отскок будет мощный!"
+        title = "Криптообвал 📉 Держимся, бомжи — дно близко, отскок будет мощный!"
     msg = f"{title}\n\n"
     msg += "Основные:\n"
     msg += f"🟠 BTC: ${data['btc_price']:,} {btc_change:+.2f}%\n"
@@ -186,7 +186,7 @@ def get_news():
             msg += f"{i}. {title}\n{link}\n\n"
         return msg
     except:
-        return "⚠️ Проблема с новостями — попробуй позже"
+        return None  # молча, если проблема
 
 @bot.message_handler(commands=['курс'])
 def handle_kurs(message):
@@ -214,7 +214,11 @@ def handle_alert(message):
 
 @bot.message_handler(commands=['новости'])
 def handle_news(message):
-    bot.send_message(message.chat.id, get_news())
+    news = get_news()
+    if news:
+        bot.send_message(message.chat.id, news)
+    else:
+        bot.send_message(message.chat.id, "⚠️ Проблема с новостями — попробуй позже")
 
 @bot.message_handler(commands=['помощь', 'help'])
 def handle_help(message):
@@ -240,24 +244,24 @@ def daily_report():
     except:
         pass
 
-def news_report():
-    try:
-        bot.send_message(GROUP_CHAT_ID, get_news())
-    except:
-        pass
-
-def anomaly_check():
+def hourly_update():
     alert = get_anomaly_alerts()
     if alert:
         try:
             bot.send_message(GROUP_CHAT_ID, alert)
         except:
             pass
+    else:
+        news = get_news()
+        if news:
+            try:
+                bot.send_message(GROUP_CHAT_ID, news)
+            except:
+                pass
 
 def run_scheduler():
     schedule.every().day.at("06:55").do(daily_report)  # 10:00 МСК
-    schedule.every().day.at("07:55").do(news_report)  # Через час после отчёта
-    schedule.every().hour.do(anomaly_check)
+    schedule.every().hour.do(hourly_update)
     while True:
         schedule.run_pending()
         time.sleep(1)
@@ -265,4 +269,4 @@ def run_scheduler():
 if __name__ == '__main__':
     print("КриптоАСИСТ ожил! 😈")
     threading.Thread(target=run_scheduler, daemon=True).start()
-    bot.infinity_polling(none_stop=True, timeout=30, long_polling_timeout=30)
+    bot.infinity_polling(none_stop=True)
