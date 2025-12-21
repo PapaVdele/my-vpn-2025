@@ -5,6 +5,7 @@ import time
 import threading
 from datetime import datetime, timedelta
 import os
+import feedparser  # добавь в requirements.txt: feedparser
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
@@ -181,12 +182,13 @@ def get_anomaly_alerts():
 
 def get_news():
     try:
-        url = "https://cryptopanic.com/api/v1/posts/?auth_token=free&public=true&currencies=BTC,ETH,SOL&kind=news&filter=hot"
-        data = requests.get(url, timeout=15).json()['results'][:3]
+        url = "https://cointelegraph.com/rss"
+        feed = feedparser.parse(url)
+        entries = feed.entries[:3]
         msg = "📰 Топ-3 свежих новостей крипты:\n\n"
-        for i, item in enumerate(data, 1):
-            title = item['title']
-            link = item['url']
+        for i, entry in enumerate(entries, 1):
+            title = entry.title
+            link = entry.link
             msg += f"{i}. {title}\n{link}\n\n"
         return msg
     except:
