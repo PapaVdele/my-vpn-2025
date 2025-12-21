@@ -1,3 +1,5 @@
+import logging
+logging.basicConfig(level=logging.ERROR)
 import telebot
 import requests
 import schedule
