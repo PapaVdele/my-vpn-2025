@@ -13,7 +13,7 @@ GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-last_alerts = {}
+last_alerts = {}  # coin_id: {'time': dt, 'price': float, 'volume': int, 'message_id': int, 'history': [{'time': dt, 'price': float}]}
 
 STABLE_KEYWORDS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'FDUSD', 'PYUSD', 'FRAX', 'USDE', 'USD', 'BSC-USD', 'BRIDGED', 'WRAPPED', 'STETH', 'WBTC', 'CBBTC', 'WETH', 'WSTETH', 'CBETH']
 
@@ -63,15 +63,52 @@ def format_price(price):
         return f"${price:.8f}".rstrip('0').rstrip('.')
     return f"${price:,.2f}"
 
+def get_top_cap(n=10):
+    try:
+        url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1"
+        data = requests.get(url, timeout=15).json()
+        filtered = [coin for coin in data if not is_stable(coin)][:n]
+        msg = f"🏆 Топ-{n} по капитализации (без стейблов):\n\n"
+        for i, coin in enumerate(filtered, 1):
+            msg += f"{i}. {coin['symbol'].upper()}: {format_price(coin['current_price'])}\n"
+        return msg
+    except:
+        return "⚠️ Проблема с данными — попробуй позже"
+
+def get_top_growth(n=10):
+    data = get_crypto_data()
+    if not data['all_coins']:
+        return "⚠️ Проблема с данными — попробуй позже"
+    msg = f"🚀 Топ-{n} роста за 24ч:\n\n"
+    sorted_growth = sorted(data['all_coins'], key=lambda x: x.get('price_change_percentage_24h', 0) or 0, reverse=True)[:n]
+    for i, coin in enumerate(sorted_growth, 1):
+        change = coin.get('price_change_percentage_24h', 0)
+        msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
+    return msg
+
+def get_top_drop(n=10):
+    data = get_crypto_data()
+    if not data['all_coins']:
+        return "⚠️ Проблема с данными — попробуй позже"
+    msg = f"📉 Топ-{n} падения за 24ч:\n\n"
+    sorted_drop = sorted(data['all_coins'], key=lambda x: x.get('price_change_percentage_24h', 0) or 0)[:n]
+    for i, coin in enumerate(sorted_drop, 1):
+        change = coin.get('price_change_percentage_24h', 0)
+        msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
+    return msg
+
 def create_daily_report():
     data = get_crypto_data()
     if not data['all_coins']:
-        return "⚠️ Проблема с данными — отчёт позже"
+        time.sleep(600)  # retry after 10 min
+        data = get_crypto_data()
+        if not data['all_coins']:
+            return None  # skip if still no data
     btc_change = data['btc_change']
     if btc_change > 5:
-        title = "Криптопушка! 🚀 Бомжи, рынок летит — время грузить мешки!"
+        title = "Криптопушка! 🚀 Бомжи, просыпаемся — рынок летит вверх!"
     elif btc_change > 0:
-        title = "Криптопотрясение 📈 Тихо растём — киты уже в деле."
+        title = "Криптопотрясение 📈 Тихо растём — киты шевелятся."
     elif btc_change > -5:
         title = "Криптостабильность 😐 Рынок дышит — ждём импульса."
     else:
@@ -91,6 +128,32 @@ def create_daily_report():
         msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
     msg += "\nИсточник: CoinGecko"
     return msg
+
+sources = [
+    "https://forklog.com/feed",
+    "https://bits.media/rss/",
+    "https://www.rbc.ru/crypto/rss"
+]
+
+last_news_time = datetime.min
+
+def get_news():
+    global last_news_time
+    try:
+        for url in sources:
+            feed = feedparser.parse(url)
+            entries = [entry for entry in feed.entries if datetime.fromtimestamp(time.mktime(entry.published_parsed)) > last_news_time][:3]
+            if entries:
+                last_news_time = datetime.fromtimestamp(time.mktime(entries[0].published_parsed))
+                msg = "📰 Топ свежих новостей крипты:\n\n"
+                for i, entry in enumerate(entries, 1):
+                    title = entry.title
+                    link = entry.link
+                    msg += f"{i}. {title}\n{link}\n\n"
+                return msg
+        return None  # no new news
+    except:
+        return None
 
 def get_anomaly_alerts():
     data = get_crypto_data()
@@ -115,13 +178,25 @@ def get_anomaly_alerts():
         price = coin.get('current_price', 0)
         coin_id = coin['id']
 
-        if not (volume > 20000000 and market_cap > 100000000 and price > 0.001 and ath_change < -70):
+        if not (volume > 20000000 and market_cap > 100000000 and price > 0.001 and ath_change < -80):
             continue
 
-        last = last_alerts.get(coin_id)
+        last = last_alerts.get(coin_id, {'history': []})
 
         fomo = ""
-        if last:
+        long_fomo = ""
+        reply_id = last.get('message_id', None)
+        history = last['history']
+        history.append({'time': current_time, 'price': price})  # add current to history
+        history = [h for h in history if current_time - h['time'] <= timedelta(days=10)]  # keep 10 days
+
+        for h in history[:-1]:  # check past for long FOMO
+            days = (current_time - h['time']).days
+            long_diff = ((price - h['price']) / h['price']) * 100 if h['price'] > 0 else 0
+            if long_diff > 50:
+                long_fomo = f"С сигнала {days} дней назад +{long_diff:.2f}%! Бомжи, действуйте — рубль на веру 😏\n"
+
+        if 'time' in last:
             time_diff = current_time - last['time']
             if time_diff < timedelta(hours=3):
                 continue
@@ -134,10 +209,10 @@ def get_anomaly_alerts():
 
             price_str = f"{price_diff:+.2f}% с прошлого сигнала (было ${format_price(last['price'])})"
             volume_str = f"{volume_diff:+.2f}% с прошлого сигнала"
-            status = "сигнал усиливается 🔥" if price_diff > 0 and volume_diff > 0 else "сигнал слабеет ⚠️"
+            status = "сигнал усиливается 🔥" if price_diff > 0 and volume_diff > 20 else "сигнал слабеет ⚠️"
 
             if price_diff > 10:
-                fomo = f"\nС прошлого сигнала уже {price_diff:+.2f}%! Кто-то из бомжей урвал, а вы? 😏"
+                fomo = f"С прошлого сигнала уже {price_diff:+.2f}%! Кто-то из бомжей урвал, а вы? 😏\n"
 
         else:
             if not (-15 < price_change < 12 and volume > market_cap * 0.1):
@@ -146,7 +221,7 @@ def get_anomaly_alerts():
             volume_str = "аномально высокий"
             status = "новый сигнал — возможная аккумуляция!"
 
-        value = "Надёжный аккумулятор на дне — киты грузят, ждут отскока."
+        value = "Как TRX — надёжный, как золото, всегда идёт наверх. Аккумулировал объём, ждём роста."
 
         humor = random.choice(fomo_phrases)
 
@@ -155,38 +230,31 @@ def get_anomaly_alerts():
         alert += f"Цена: ${format_price(price)} ({price_str})\n"
         alert += f"Объём 24h: ${volume:,.0f} ({volume_str})\n"
         alert += f"{value}\n"
-        if ath_change < -70:
+        if ath_change < -80:
             alert += f"На дне: {ath_change:.1f}% от ATH 🔥\n"
+        alert += long_fomo
         alert += fomo
         alert += f"\n{humor}\n"
         alert += f"Ссылка: https://www.coingecko.com/en/coins/{coin_id}"
 
-        alerts.append(alert)
+        try:
+            sent_msg = bot.send_message(GROUP_CHAT_ID, alert, reply_to_message_id=reply_id)
+            last_alerts[coin_id] = {
+                'time': current_time,
+                'price': price,
+                'volume': volume,
+                'message_id': sent_msg.message_id,
+                'history': history
+            }
+        except:
+            pass
 
-        last_alerts[coin_id] = {
-            'time': current_time,
-            'price': price,
-            'volume': volume
-        }
+        alerts.append(alert)
 
         if len(alerts) >= 3:
             break
 
     return "\n\n".join(alerts) if alerts else None
-
-def get_news():
-    try:
-        url = "https://forklog.com/feed"
-        feed = feedparser.parse(url)
-        entries = feed.entries[:3]
-        msg = "📰 Топ-3 свежих новостей крипты (ForkLog):\n\n"
-        for i, entry in enumerate(entries, 1):
-            title = entry.title
-            link = entry.link
-            msg += f"{i}. {title}\n{link}\n\n"
-        return msg
-    except:
-        return None  # молча, если проблема
 
 @bot.message_handler(commands=['курс'])
 def handle_kurs(message):
@@ -223,20 +291,32 @@ def handle_news(message):
 @bot.message_handler(commands=['помощь', 'help'])
 def handle_help(message):
     help_text = """
-🤖 *КриптоАСИСТ — твой соратник в 'Криптобомжах'*
+🤖 *КриптоАСИСТ — твоя криптошкола в 'Криптобомжах'*
 
 Команды:
-• /курс — ежедневный отчёт
+• /курс — отчёт по рынку
 • /топ — топ капитализации
 • /рост — топ роста
 • /падение — топ падения
-• /алерт — аномалии объёмов
+• /алерт — аномалии с анализом
 • /новости — свежие новости крипты
 • /помощь — это
-
-Сигналы с FOMO — не проспи памп! 😈
 """
     bot.send_message(message.chat.id, help_text)
+
+@bot.message_handler(commands=['фомо'])
+def handle_fomo(message):
+    fomo_msg = "Топ FOMO от прошлых сигналов:\n\n"
+    for coin_id, data in last_alerts.items():
+        history = data['history']
+        if len(history) > 1:
+            long_diff = ((history[-1]['price'] - history[0]['price']) / history[0]['price']) * 100 if history[0]['price'] > 0 else 0
+            if long_diff > 50:
+                days = (history[-1]['time'] - history[0]['time']).days
+                fomo_msg += f"{coin_id.upper()} +{long_diff:.2f}% за {days} дней! Бомжи, действуйте — рубль на веру 😏\n"
+    if fomo_msg == "Топ FOMO от прошлых сигналов:\n\n":
+        fomo_msg = "Пока нет сильных пампов от прошлых сигналов. Ждём! 👀"
+    bot.send_message(message.chat.id, fomo_msg)
 
 def daily_report():
     try:
@@ -249,6 +329,10 @@ def hourly_update():
     if alert:
         try:
             bot.send_message(GROUP_CHAT_ID, alert)
+            time.sleep(300)  # 5 min pause before news
+            news = get_news()
+            if news:
+                bot.send_message(GROUP_CHAT_ID, news)
         except:
             pass
     else:
