@@ -159,13 +159,12 @@ def get_anomaly_alerts():
         history.append({'time': current_time, 'price': price})
         history = [h for h in history if current_time - h['time'] <= timedelta(days=10)]
 
-        # Конкретные ссылки на прошлые сигналы (до 10 дней)
         for h in history[:-1]:
             days_ago = (current_time - h['time']).days
             if days_ago == 0:
-                days_ago = 1  # если сегодня
+                days_ago = 1
             profit = ((price - h['price']) / h['price']) * 100 if h['price'] > 0 else 0
-            if profit > 20:  # показываем только значимый рост
+            if profit > 20:
                 long_fomo += f"С сигнала {days_ago} дней назад уже +{profit:.2f}% (с ${format_price(h['price'])} до ${format_price(price)})! Кто-то урвал, а вы? 😏\n"
 
         if 'time' in last:
@@ -204,7 +203,7 @@ def get_anomaly_alerts():
         alert += f"{value}\n"
         if ath_change < -80:
             alert += f"На дне: {ath_change:.1f}% от ATH 🔥\n"
-        alert += long_fomo  # конкретные ссылки на прошлые
+        alert += long_fomo
         alert += fomo
         alert += f"\n{humor}\n"
         alert += f"Подробности: coingecko.com/en/coins/{coin_id}"
@@ -235,7 +234,95 @@ def get_anomaly_alerts():
 
     return full_msg
 
-# ... (остальной код: get_news, send_alerts/send_news, расписание и т.д. — как в предыдущем финальном)
+def get_news():
+    global current_source_index, sent_news_urls, sent_news_titles
+    try:
+        source_name, url = sources[current_source_index]
+        current_source_index = (current_source_index + 1) % len(sources)
+
+        feed = feedparser.parse(url)
+
+        unique_entries = {}
+        for entry in feed.entries:
+            link = entry.link
+            title = entry.title.strip()
+            if link not in sent_news_urls and title.lower() not in sent_news_titles and link not in unique_entries:
+                unique_entries[link] = title
+
+        if not unique_entries:
+            return None
+
+        top3 = list(unique_entries.items())[:3]
+
+        msg = f"📰 Свежак от {source_name} — бомжи, читайте, пока не поздно 😏\n\n"
+        for link, title in top3:
+            msg += f"{title}\n{link}\n\n"
+            sent_news_urls.add(link)
+            sent_news_titles.add(title.lower())
+
+        return msg
+    except:
+        return None
+
+def send_alerts():
+    alert = get_anomaly_alerts()
+    if alert:
+        try:
+            bot.send_message(GROUP_CHAT_ID, alert, disable_web_page_preview=True)
+        except:
+            pass
+
+def send_news():
+    news = get_news()
+    if news:
+        try:
+            bot.send_message(GROUP_CHAT_ID, news, disable_web_page_preview=False)
+        except:
+            pass
+
+def daily_report_task():
+    try:
+        bot.send_message(GROUP_CHAT_ID, create_daily_report())
+    except:
+        pass
+
+def final_report_task():
+    try:
+        bot.send_message(GROUP_CHAT_ID, final_day_report())
+    except:
+        pass
+
+def run_scheduler():
+    schedule.every().day.at("07:00").do(daily_report_task)  # 10:00 МСК
+
+    utc_times = [
+        "07:15", "07:30", "07:45", "08:00",
+        "08:15", "08:30", "08:45", "09:00",
+        "09:15", "09:30", "09:45", "10:00",
+        "10:15", "10:30", "10:45", "11:00",
+        "11:15", "11:30", "11:45", "12:00",
+        "12:15", "12:30", "12:45", "13:00",
+        "13:15", "13:30", "13:45", "14:00",
+        "14:15", "14:30", "14:45", "15:00",
+        "15:15", "15:30", "15:45", "16:00",
+        "16:15", "16:30", "16:45", "17:00",
+        "17:15", "17:30", "17:45", "18:00",
+        "18:15", "18:30", "18:45"
+    ]
+
+    for i, t in enumerate(utc_times):
+        if i % 2 == 0:
+            schedule.every().day.at(t).do(send_alerts)
+        else:
+            schedule.every().day.at(t).do(send_news)
+
+    schedule.every().day.at("19:00").do(final_report_task)  # 22:00 МСК
+
+    schedule.every().hour.do(send_alerts)  # ночь — мощные
+
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
 
 if __name__ == '__main__':
     print("КриптоАСИСТ ожил! 😈")
