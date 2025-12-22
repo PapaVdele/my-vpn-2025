@@ -13,7 +13,9 @@ GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-last_alerts = {}  # coin_id: {'time': dt, 'price': float, 'volume': int, 'message_id': int, 'history': [{'time': dt, 'price': float}]}
+last_alerts = {}  # coin_id: {'time': dt, 'price': float, 'volume': int, 'message_id': int, 'history': list}
+
+last_group_news_time = datetime.min  # только для группы
 
 STABLE_KEYWORDS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'FDUSD', 'PYUSD', 'FRAX', 'USDE', 'USD', 'BSC-USD', 'BRIDGED', 'WRAPPED', 'STETH', 'WBTC', 'CBBTC', 'WETH', 'WSTETH', 'CBETH']
 
@@ -100,13 +102,10 @@ def get_top_drop(n=10):
 def create_daily_report():
     data = get_crypto_data()
     if not data['all_coins']:
-        time.sleep(600)  # retry after 10 min
-        data = get_crypto_data()
-        if not data['all_coins']:
-            return None  # skip if still no data
+        return "⚠️ Проблема с данными — отчёт позже"
     btc_change = data['btc_change']
     if btc_change > 5:
-        title = "Криптопушка! 🚀 Бомжи, просыпаемся — рынок летит вверх!"
+        title = "Криптопушка! 🚀 Бомжи, рынок летит — время грузить мешки!"
     elif btc_change > 0:
         title = "Криптопотрясение 📈 Тихо растём — киты шевелятся."
     elif btc_change > -5:
@@ -128,32 +127,6 @@ def create_daily_report():
         msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
     msg += "\nИсточник: CoinGecko"
     return msg
-
-sources = [
-    "https://forklog.com/feed",
-    "https://bits.media/rss/",
-    "https://www.rbc.ru/crypto/rss"
-]
-
-last_news_time = datetime.min
-
-def get_news():
-    global last_news_time
-    try:
-        for url in sources:
-            feed = feedparser.parse(url)
-            entries = [entry for entry in feed.entries if datetime.fromtimestamp(time.mktime(entry.published_parsed)) > last_news_time][:3]
-            if entries:
-                last_news_time = datetime.fromtimestamp(time.mktime(entries[0].published_parsed))
-                msg = "📰 Топ свежих новостей крипты:\n\n"
-                for i, entry in enumerate(entries, 1):
-                    title = entry.title
-                    link = entry.link
-                    msg += f"{i}. {title}\n{link}\n\n"
-                return msg
-        return None  # no new news
-    except:
-        return None
 
 def get_anomaly_alerts():
     data = get_crypto_data()
@@ -186,15 +159,15 @@ def get_anomaly_alerts():
         fomo = ""
         long_fomo = ""
         reply_id = last.get('message_id', None)
-        history = last['history']
-        history.append({'time': current_time, 'price': price})  # add current to history
-        history = [h for h in history if current_time - h['time'] <= timedelta(days=10)]  # keep 10 days
+        history = last.get('history', [])
+        history.append({'time': current_time, 'price': price})
+        history = [h for h in history if current_time - h['time'] <= timedelta(days=10)]
 
-        for h in history[:-1]:  # check past for long FOMO
+        for h in history[:-1]:
             days = (current_time - h['time']).days
             long_diff = ((price - h['price']) / h['price']) * 100 if h['price'] > 0 else 0
             if long_diff > 50:
-                long_fomo = f"С сигнала {days} дней назад +{long_diff:.2f}%! Бомжи, действуйте — рубль на веру 😏\n"
+                long_fomo += f"С сигнала {days} дней назад +{long_diff:.2f}%! Бомжи, действуйте — рубль на веру 😏\n"
 
         if 'time' in last:
             time_diff = current_time - last['time']
@@ -221,7 +194,7 @@ def get_anomaly_alerts():
             volume_str = "аномально высокий"
             status = "новый сигнал — возможная аккумуляция!"
 
-        value = "Как TRX — надёжный, как золото, всегда идёт наверх. Аккумулировал объём, ждём роста."
+        value = "Надёжный аккумулятор на дне — киты грузят, ждут отскока."
 
         humor = random.choice(fomo_phrases)
 
@@ -238,12 +211,12 @@ def get_anomaly_alerts():
         alert += f"Ссылка: https://www.coingecko.com/en/coins/{coin_id}"
 
         try:
-            sent_msg = bot.send_message(GROUP_CHAT_ID, alert, reply_to_message_id=reply_id)
+            sent = bot.send_message(GROUP_CHAT_ID, alert, reply_to_message_id=reply_id)
             last_alerts[coin_id] = {
                 'time': current_time,
                 'price': price,
                 'volume': volume,
-                'message_id': sent_msg.message_id,
+                'message_id': sent.message_id,
                 'history': history
             }
         except:
@@ -255,6 +228,39 @@ def get_anomaly_alerts():
             break
 
     return "\n\n".join(alerts) if alerts else None
+
+def get_news(update_time=False):
+    global last_group_news_time
+    try:
+        sources = [
+            "https://forklog.com/feed",
+            "https://bits.media/rss/",
+            "https://www.rbc.ru/crypto/rss"
+        ]
+        all_new_entries = []
+        for url in sources:
+            feed = feedparser.parse(url)
+            for entry in feed.entries:
+                pub_time = datetime.fromtimestamp(time.mktime(entry.published_parsed)) if 'published_parsed' in entry else datetime.now()
+                if pub_time > last_group_news_time:
+                    all_new_entries.append((pub_time, entry.title, entry.link))
+
+        if not all_new_entries:
+            return None
+
+        all_new_entries.sort(reverse=True)
+        top3 = all_new_entries[:3]
+
+        msg = "📰 Топ-3 свежих новостей крипты:\n\n"
+        for pub_time, title, link in top3:
+            msg += f"{title}\n{link}\n\n"
+
+        if update_time:
+            last_group_news_time = top3[0][0]
+
+        return msg
+    except:
+        return None
 
 @bot.message_handler(commands=['курс'])
 def handle_kurs(message):
@@ -282,11 +288,11 @@ def handle_alert(message):
 
 @bot.message_handler(commands=['новости'])
 def handle_news(message):
-    news = get_news()
+    news = get_news(update_time=False)
     if news:
         bot.send_message(message.chat.id, news)
     else:
-        bot.send_message(message.chat.id, "⚠️ Проблема с новостями — попробуй позже")
+        bot.send_message(message.chat.id, "⚠️ Нет новых новостей — попробуй позже")
 
 @bot.message_handler(commands=['помощь', 'help'])
 def handle_help(message):
@@ -301,22 +307,10 @@ def handle_help(message):
 • /алерт — аномалии с анализом
 • /новости — свежие новости крипты
 • /помощь — это
+
+Сигналы с FOMO — не проспи памп! 😈
 """
     bot.send_message(message.chat.id, help_text)
-
-@bot.message_handler(commands=['фомо'])
-def handle_fomo(message):
-    fomo_msg = "Топ FOMO от прошлых сигналов:\n\n"
-    for coin_id, data in last_alerts.items():
-        history = data['history']
-        if len(history) > 1:
-            long_diff = ((history[-1]['price'] - history[0]['price']) / history[0]['price']) * 100 if history[0]['price'] > 0 else 0
-            if long_diff > 50:
-                days = (history[-1]['time'] - history[0]['time']).days
-                fomo_msg += f"{coin_id.upper()} +{long_diff:.2f}% за {days} дней! Бомжи, действуйте — рубль на веру 😏\n"
-    if fomo_msg == "Топ FOMO от прошлых сигналов:\n\n":
-        fomo_msg = "Пока нет сильных пампов от прошлых сигналов. Ждём! 👀"
-    bot.send_message(message.chat.id, fomo_msg)
 
 def daily_report():
     try:
@@ -329,22 +323,17 @@ def hourly_update():
     if alert:
         try:
             bot.send_message(GROUP_CHAT_ID, alert)
-            time.sleep(300)  # 5 min pause before news
-            news = get_news()
-            if news:
-                bot.send_message(GROUP_CHAT_ID, news)
         except:
             pass
-    else:
-        news = get_news()
-        if news:
-            try:
-                bot.send_message(GROUP_CHAT_ID, news)
-            except:
-                pass
+    news = get_news(update_time=True)
+    if news:
+        try:
+            bot.send_message(GROUP_CHAT_ID, news)
+        except:
+            pass
 
 def run_scheduler():
-    schedule.every().day.at("06:55").do(daily_report)  # 10:00 МСК
+    schedule.every().day.at("06:55").do(daily_report)
     schedule.every().hour.do(hourly_update)
     while True:
         schedule.run_pending()
