@@ -13,9 +13,9 @@ GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-last_alerts = {}
+last_alerts = {}  # coin_id: {'time': dt, 'price': float, 'volume': int, 'message_id': int, 'history': list}
 
-sent_news_urls = set()
+sent_news_urls = set()  # уникальные ссылки новостей
 
 STABLE_KEYWORDS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'FDUSD', 'PYUSD', 'FRAX', 'USDE', 'USD', 'BSC-USD', 'BRIDGED', 'WRAPPED', 'STETH', 'WBTC', 'CBBTC', 'WETH', 'WSTETH', 'CBETH']
 
@@ -44,8 +44,8 @@ def get_crypto_data():
         sorted_growth = sorted(filtered_coins, key=lambda x: x.get('price_change_percentage_24h', 0) or 0, reverse=True)
         sorted_drop = sorted(filtered_coins, key=lambda x: x.get('price_change_percentage_24h', 0) or 0)
 
-        top_growth = sorted_growth[:3]
-        top_drop = sorted_drop[:3]
+        top_growth = sorted_growth[:5]  # для финального топ-5
+        top_drop = sorted_drop[:5]
 
         return {
             'btc_price': btc_price, 'btc_change': btc_change,
@@ -84,17 +84,33 @@ def create_daily_report():
     msg += f"🔷 ETH: ${data['eth_price']:,} {data['eth_change']:+.2f}%\n"
     msg += f"🟣 SOL: ${data['sol_price']:,} {data['sol_change']:+.2f}%\n\n"
     msg += "🚀 Топ-3 роста:\n"
-    for i, coin in enumerate(data['top_growth'], 1):
+    for i, coin in enumerate(data['top_growth'][:3], 1):
         change = coin.get('price_change_percentage_24h', 0)
         msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
     msg += "\n📉 Топ-3 падения:\n"
-    for i, coin in enumerate(data['top_drop'], 1):
+    for i, coin in enumerate(data['top_drop'][:3], 1):
         change = coin.get('price_change_percentage_24h', 0)
         msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
     msg += "\nИсточник: CoinGecko"
     return msg
 
-def get_anomaly_alerts(is_night=False):
+def final_day_report():
+    data = get_crypto_data()
+    if not data['all_coins']:
+        return "⚠️ Проблема с данными — финальный отчёт позже"
+    msg = "📊 Финальный отчёт за день — лидеры роста и дна:\n\n"
+    msg += "🚀 Топ-5 роста за 24ч:\n"
+    for i, coin in enumerate(data['top_growth'], 1):
+        change = coin.get('price_change_percentage_24h', 0)
+        msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
+    msg += "\n📉 Топ-5 падения за 24ч:\n"
+    for i, coin in enumerate(data['top_drop'], 1):
+        change = coin.get('price_change_percentage_24h', 0)
+        msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
+    msg += "\nБомжи, вот кто сегодня рулил рынком. Завтра новый день — новые шансы 😏"
+    return msg
+
+def get_anomaly_alerts():
     data = get_crypto_data()
     if not data['all_coins']:
         return None
@@ -117,12 +133,8 @@ def get_anomaly_alerts(is_night=False):
         price = coin.get('current_price', 0)
         coin_id = coin['id']
 
-        if is_night:
-            if not (volume > 50000000 and abs(price_change) > 10):
-                continue
-        else:
-            if not (volume > 20000000 and market_cap > 100000000 and price > 0.001 and ath_change < -80):
-                continue
+        if not (volume > 20000000 and market_cap > 100000000 and price > 0.001 and ath_change < -80):
+            continue
 
         last = last_alerts.get(coin_id, {'history': []})
 
@@ -232,84 +244,15 @@ def get_news():
     except:
         return None
 
-@bot.message_handler(commands=['курс'])
-def handle_kurs(message):
-    bot.send_message(message.chat.id, create_daily_report())
-
-@bot.message_handler(commands=['топ'])
-def handle_top(message):
-    bot.send_message(message.chat.id, get_top_cap(10))
-
-@bot.message_handler(commands=['рост'])
-def handle_growth(message):
-    bot.send_message(message.chat.id, get_top_growth(10))
-
-@bot.message_handler(commands=['падение'])
-def handle_drop(message):
-    bot.send_message(message.chat.id, get_top_drop(10))
-
-@bot.message_handler(commands=['алерт'])
-def handle_alert(message):
+def send_alerts():
     alert = get_anomaly_alerts()
-    if alert:
-        bot.send_message(message.chat.id, alert)
-    else:
-        bot.send_message(message.chat.id, "😴 Сейчас нет значимых аномалий — рынок спокойный.")
-
-@bot.message_handler(commands=['новости'])
-def handle_news(message):
-    news = get_news()
-    if news:
-        bot.send_message(message.chat.id, news)
-    else:
-        bot.send_message(message.chat.id, "⚠️ Нет новых новостей — попробуй позже")
-
-@bot.message_handler(commands=['помощь', 'help'])
-def handle_help(message):
-    help_text = """
-🤖 *КриптоАСИСТ — твоя криптошкола в 'Криптобомжах'*
-
-Команды:
-• /курс — отчёт по рынку
-• /топ — топ капитализации
-• /рост — топ роста
-• /падение — топ падения
-• /алерт — аномалии с анализом
-• /новости — свежие новости крипты
-• /помощь — это
-
-Сигналы с FOMO — не проспи памп! 😈
-"""
-    bot.send_message(message.chat.id, help_text)
-
-def daily_report():
-    try:
-        bot.send_message(GROUP_CHAT_ID, create_daily_report())
-    except:
-        pass
-
-def final_report():
-    try:
-        msg = "📊 Финальный отчёт за день — лидеры роста и дна:\n\n"
-        msg += get_top_growth(5) + "\n"
-        msg += get_top_drop(5)
-        bot.send_message(GROUP_CHAT_ID, msg)
-    except:
-        pass
-
-def hourly_update():
-    current_hour = datetime.now().hour  # UTC
-    msk_hour = (current_hour + 3) % 24  # МСК = UTC + 3
-
-    is_night = msk_hour < 10 or msk_hour >= 22  # ночь 22:00–10:00 МСК
-
-    alert = get_anomaly_alerts(is_night=is_night)
     if alert:
         try:
             bot.send_message(GROUP_CHAT_ID, alert)
         except:
             pass
 
+def send_news():
     news = get_news()
     if news:
         try:
@@ -317,10 +260,50 @@ def hourly_update():
         except:
             pass
 
+def daily_report_task():
+    try:
+        bot.send_message(GROUP_CHAT_ID, create_daily_report())
+    except:
+        pass
+
+def final_report_task():
+    try:
+        bot.send_message(GROUP_CHAT_ID, final_day_report())
+    except:
+        pass
+
 def run_scheduler():
-    schedule.every().day.at("07:00").do(daily_report)  # 10:00 МСК
-    schedule.every().day.at("19:00").do(final_report)  # 22:00 МСК
-    schedule.every().hour.do(hourly_update)
+    # 10:00 МСК — отчёт
+    schedule.every().day.at("07:00").do(daily_report_task)
+
+    # Каждые 15 мин с 10:15 до 21:45 МСК (UTC)
+    utc_times = [
+        "07:15", "07:30", "07:45", "08:00",
+        "08:15", "08:30", "08:45", "09:00",
+        "09:15", "09:30", "09:45", "10:00",
+        "10:15", "10:30", "10:45", "11:00",
+        "11:15", "11:30", "11:45", "12:00",
+        "12:15", "12:30", "12:45", "13:00",
+        "13:15", "13:30", "13:45", "14:00",
+        "14:15", "14:30", "14:45", "15:00",
+        "15:15", "15:30", "15:45", "16:00",
+        "16:15", "16:30", "16:45", "17:00",
+        "17:15", "17:30", "17:45", "18:00",
+        "18:15", "18:30", "18:45"
+    ]
+
+    for i, t in enumerate(utc_times):
+        if i % 2 == 0:
+            schedule.every().day.at(t).do(send_alerts)  # чётные — алерты
+        else:
+            schedule.every().day.at(t).do(send_news)  # нечётные — новости
+
+    # 22:00 МСК — финальный отчёт
+    schedule.every().day.at("19:00").do(final_report_task)
+
+    # Ночь: каждый час мощные алерты (фильтр в get_anomaly_alerts с is_night)
+    schedule.every().hour.do(send_alerts)
+
     while True:
         schedule.run_pending()
         time.sleep(1)
