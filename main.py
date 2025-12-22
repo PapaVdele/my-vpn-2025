@@ -13,9 +13,9 @@ GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-last_alerts = {}  # coin_id: {'time': dt, 'price': float, 'volume': int, 'message_id': int, 'history': list}
+last_alerts = {}
 
-sent_news_urls = set()  # уникальные ссылки новостей
+sent_news_urls = set()  # глобальный set для уникальности навсегда
 
 STABLE_KEYWORDS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'FDUSD', 'PYUSD', 'FRAX', 'USDE', 'USD', 'BSC-USD', 'BRIDGED', 'WRAPPED', 'STETH', 'WBTC', 'CBBTC', 'WETH', 'WSTETH', 'CBETH']
 
@@ -44,7 +44,7 @@ def get_crypto_data():
         sorted_growth = sorted(filtered_coins, key=lambda x: x.get('price_change_percentage_24h', 0) or 0, reverse=True)
         sorted_drop = sorted(filtered_coins, key=lambda x: x.get('price_change_percentage_24h', 0) or 0)
 
-        top_growth = sorted_growth[:5]  # для финального топ-5
+        top_growth = sorted_growth[:5]
         top_drop = sorted_drop[:5]
 
         return {
@@ -219,30 +219,93 @@ def get_news():
             "https://bits.media/rss/",
             "https://www.rbc.ru/crypto/rss"
         ]
-        all_new_entries = []
+        unique_entries = {}
         for url in sources:
             try:
                 feed = feedparser.parse(url)
                 for entry in feed.entries:
                     link = entry.link
-                    if link not in sent_news_urls:
-                        all_new_entries.append((entry.title, link))
+                    if link not in sent_news_urls and link not in unique_entries:
+                        unique_entries[link] = entry.title
             except:
                 continue
 
-        if not all_new_entries:
+        if not unique_entries:
             return None
 
-        top3 = all_new_entries[:3]
+        top3_links = list(unique_entries.keys())[:3]
 
         msg = "📰 Топ-3 свежих новостей крипты:\n\n"
-        for title, link in top3:
+        for link in top3_links:
+            title = unique_entries[link]
             msg += f"{title}\n{link}\n\n"
             sent_news_urls.add(link)
 
         return msg
     except:
         return None
+
+@bot.message_handler(commands=['курс'])
+def handle_kurs(message):
+    bot.send_message(message.chat.id, create_daily_report())
+
+@bot.message_handler(commands=['топ'])
+def handle_top(message):
+    bot.send_message(message.chat.id, get_top_cap(10))
+
+@bot.message_handler(commands=['рост'])
+def handle_growth(message):
+    bot.send_message(message.chat.id, get_top_growth(10))
+
+@bot.message_handler(commands=['падение'])
+def handle_drop(message):
+    bot.send_message(message.chat.id, get_top_drop(10))
+
+@bot.message_handler(commands=['алерт'])
+def handle_alert(message):
+    alert = get_anomaly_alerts()
+    if alert:
+        bot.send_message(message.chat.id, alert)
+    else:
+        bot.send_message(message.chat.id, "😴 Сейчас нет значимых аномалий — рынок спокойный.")
+
+@bot.message_handler(commands=['новости'])
+def handle_news(message):
+    news = get_news()
+    if news:
+        bot.send_message(message.chat.id, news)
+    else:
+        bot.send_message(message.chat.id, "⚠️ Нет новых новостей — попробуй позже")
+
+@bot.message_handler(commands=['помощь', 'help'])
+def handle_help(message):
+    help_text = """
+🤖 *КриптоАСИСТ — твоя криптошкола в 'Криптобомжах'*
+
+Команды:
+• /курс — отчёт по рынку
+• /топ — топ капитализации
+• /рост — топ роста
+• /падение — топ падения
+• /алерт — аномалии с анализом
+• /новости — свежие новости крипты
+• /помощь — это
+
+Сигналы с FOMO — не проспи памп! 😈
+"""
+    bot.send_message(message.chat.id, help_text)
+
+def daily_report_task():
+    try:
+        bot.send_message(GROUP_CHAT_ID, create_daily_report())
+    except:
+        pass
+
+def final_report_task():
+    try:
+        bot.send_message(GROUP_CHAT_ID, final_day_report())
+    except:
+        pass
 
 def send_alerts():
     alert = get_anomaly_alerts()
@@ -259,18 +322,6 @@ def send_news():
             bot.send_message(GROUP_CHAT_ID, news)
         except:
             pass
-
-def daily_report_task():
-    try:
-        bot.send_message(GROUP_CHAT_ID, create_daily_report())
-    except:
-        pass
-
-def final_report_task():
-    try:
-        bot.send_message(GROUP_CHAT_ID, final_day_report())
-    except:
-        pass
 
 def run_scheduler():
     # 10:00 МСК — отчёт
@@ -294,14 +345,14 @@ def run_scheduler():
 
     for i, t in enumerate(utc_times):
         if i % 2 == 0:
-            schedule.every().day.at(t).do(send_alerts)  # чётные — алерты
+            schedule.every().day.at(t).do(send_alerts)
         else:
-            schedule.every().day.at(t).do(send_news)  # нечётные — новости
+            schedule.every().day.at(t).do(send_news)
 
     # 22:00 МСК — финальный отчёт
     schedule.every().day.at("19:00").do(final_report_task)
 
-    # Ночь: каждый час мощные алерты (фильтр в get_anomaly_alerts с is_night)
+    # Ночь: каждый час мощные алерты
     schedule.every().hour.do(send_alerts)
 
     while True:
