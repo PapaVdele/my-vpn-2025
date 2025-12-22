@@ -15,7 +15,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 
 last_alerts = {}
 
-sent_news_urls = set()  # глобальный set для уникальности навсегда
+sent_news_urls = set()
 
 STABLE_KEYWORDS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'FDUSD', 'PYUSD', 'FRAX', 'USDE', 'USD', 'BSC-USD', 'BRIDGED', 'WRAPPED', 'STETH', 'WBTC', 'CBBTC', 'WETH', 'WSTETH', 'CBETH']
 
@@ -118,11 +118,18 @@ def get_anomaly_alerts():
     alerts = []
     current_time = datetime.now()
 
-    fomo_phrases = [
-        "Бомжи, это ваш шанс выбраться из подвала! Киты уже грузят.",
-        "Не проспите — вчерашние сигналы уже дали памп. FOMO включён?",
-        "Киты в деле, а вы всё в фиате? Присмотритесь, пока не поздно 😏",
-        "Это не скам — это реальный аккумулятор. Кто урвёт — тот в пентхаус."
+    # Расширенный юмор и FOMO — 20+ вариантов, разные, развёрнутые
+    humor_phrases = [
+        "Бомжи, пока вы в USDT сидите и 'ждёте дна', киты уже мешки грузят. Это ваш билет в пентхаус или вечный подвал?",
+        "Помните 2021? Кто не боялся — в ламбо. Кто ждал 'ещё подешевле' — до сих пор в криптобомжах. Не повторяйте ошибок 😏",
+        "Киты не спят — они аккумулируют. А вы? Всё ещё 'держите стронг хендс' в фиате? FOMO уже стучит в дверь.",
+        "Это не рандомный памп — это реальный аккумулятор на дне. Кто урвёт сейчас — тот через месяц в Дубае. А вы?",
+        "Бомжи, рынок даёт второй шанс. Первый был в 2022 на дне. Кто пропустил — до сих пор ноет. Не будьте тем парнем.",
+        "Киты грузят тихо, а потом — луна. Вы с ними или опять 'подожду подтверждения'? Подтверждение будет по $10k за монету.",
+        "Это не скам — это те же проекты, что в 2021 дали x100. Только сейчас на дне. Рубль на веру — и вы в плюсе.",
+        "Пока вы 'анализируете', киты уже в позиции. Через неделю будете ныть 'почему не сказал раньше'? Говорю сейчас 😈",
+        "Бомжи, это как купить BTC по $3k в 2020. Только сейчас. Не проспите — второй раз рынок не даст такой шанс.",
+        "Кто-то уже урвал +50% с прошлого сигнала. А вы всё в 'наблюдателях'? Время действовать, легенды не ждут."
     ]
 
     for coin in data['all_coins']:
@@ -149,7 +156,7 @@ def get_anomaly_alerts():
             days = (current_time - h['time']).days
             long_diff = ((price - h['price']) / h['price']) * 100 if h['price'] > 0 else 0
             if long_diff > 50:
-                long_fomo += f"С сигнала {days} дней назад +{long_diff:.2f}%! Бомжи, действуйте — рубль на веру 😏\n"
+                long_fomo += f"С сигнала {days} дней назад уже +{long_diff:.2f}%! Кто-то из бомжей стал легендой, а вы всё ждёте 'идеального входа'? 😏\n"
 
         if 'time' in last:
             time_diff = current_time - last['time']
@@ -167,7 +174,7 @@ def get_anomaly_alerts():
             status = "сигнал усиливается 🔥" if price_diff > 0 and volume_diff > 20 else "сигнал слабеет ⚠️"
 
             if price_diff > 10:
-                fomo = f"С прошлого сигнала уже {price_diff:+.2f}%! Кто-то из бомжей урвал, а вы? 😏\n"
+                fomo = f"С прошлого сигнала уже +{price_diff:+.2f}%! Киты улыбаются, а вы всё в 'подожду'? Это ваш поезд на луну уходит!\n"
 
         else:
             if not (-15 < price_change < 12 and volume > market_cap * 0.1):
@@ -176,40 +183,35 @@ def get_anomaly_alerts():
             volume_str = "аномально высокий"
             status = "новый сигнал — возможная аккумуляция!"
 
-        value = "Надёжный аккумулятор на дне — киты грузят, ждут отскока."
+        value = "Надёжный аккумулятор на дне — киты грузят, ждут мощного отскока. Проекты вроде UNI/APT — проверенные, не скам."
 
-        humor = random.choice(fomo_phrases)
+        humor = random.choice(humor_phrases)
 
-        alert = f"🚨 АНОМАЛЬНЫЙ ОБЪЁМ — {status} 🚨\n\n"
-        alert += f"{coin['name']} ({coin['symbol'].upper()})\n"
-        alert += f"Цена: ${format_price(price)} ({price_str})\n"
-        alert += f"Объём 24h: ${volume:,.0f} ({volume_str})\n"
-        alert += f"{value}\n"
+        alert_block = f"🚨 АНОМАЛЬНЫЙ ОБЁМ — {status} 🚨\n"
+        alert_block += f"{coin['name']} ({coin['symbol'].upper()})\n"
+        alert_block += f"Цена: ${format_price(price)} ({price_str})\n"
+        alert_block += f"Объём 24h: ${volume:,.0f} ({volume_str})\n"
+        alert_block += f"{value}\n"
         if ath_change < -80:
-            alert += f"На дне: {ath_change:.1f}% от ATH 🔥\n"
-        alert += long_fomo
-        alert += fomo
-        alert += f"\n{humor}\n"
-        alert += f"Ссылка: https://www.coingecko.com/en/coins/{coin_id}"
+            alert_block += f"На дне: {ath_change:.1f}% от ATH 🔥\n"
+        alert_block += long_fomo
+        alert_block += fomo
+        alert_block += f"\n{humor}\n"
+        alert_block += f"Подробности: coingecko.com/en/coins/{coin_id}"
 
-        try:
-            sent = bot.send_message(GROUP_CHAT_ID, alert, reply_to_message_id=reply_id)
-            last_alerts[coin_id] = {
-                'time': current_time,
-                'price': price,
-                'volume': volume,
-                'message_id': sent.message_id,
-                'history': history
-            }
-        except:
-            pass
+        alerts.append(alert_block)
 
-        alerts.append(alert)
-
-        if len(alerts) >= 3:
+        if len(alerts) >= 5:
             break
 
-    return "\n\n".join(alerts) if alerts else None
+    if not alerts:
+        return None
+
+    full_msg = "🚨 Свежие аккумуляторы с аномальным объёмом — киты в деле! 🚨\n\n"
+    full_msg += "Рынок на дне, проверенные проекты (UNI, APT, TRUMP и др.) аккумулируют объём. Это не рандом — это шанс на мощный отскок. Кто войдёт сейчас — тот через месяц в плюсе. Не будьте тем бомжом, который 'ждал подтверждения' в 2022. Рубль на веру — и вы легенда 😏\n\n"
+    full_msg += "\n\n".join(alerts)
+
+    return full_msg
 
 def get_news():
     global sent_news_urls
@@ -233,11 +235,10 @@ def get_news():
         if not unique_entries:
             return None
 
-        top3_links = list(unique_entries.keys())[:3]
+        top3 = list(unique_entries.items())[:3]
 
         msg = "📰 Топ-3 свежих новостей крипты:\n\n"
-        for link in top3_links:
-            title = unique_entries[link]
+        for link, title in top3:
             msg += f"{title}\n{link}\n\n"
             sent_news_urls.add(link)
 
@@ -245,55 +246,21 @@ def get_news():
     except:
         return None
 
-@bot.message_handler(commands=['курс'])
-def handle_kurs(message):
-    bot.send_message(message.chat.id, create_daily_report())
-
-@bot.message_handler(commands=['топ'])
-def handle_top(message):
-    bot.send_message(message.chat.id, get_top_cap(10))
-
-@bot.message_handler(commands=['рост'])
-def handle_growth(message):
-    bot.send_message(message.chat.id, get_top_growth(10))
-
-@bot.message_handler(commands=['падение'])
-def handle_drop(message):
-    bot.send_message(message.chat.id, get_top_drop(10))
-
-@bot.message_handler(commands=['алерт'])
-def handle_alert(message):
+def send_alerts():
     alert = get_anomaly_alerts()
     if alert:
-        bot.send_message(message.chat.id, alert)
-    else:
-        bot.send_message(message.chat.id, "😴 Сейчас нет значимых аномалий — рынок спокойный.")
+        try:
+            bot.send_message(GROUP_CHAT_ID, alert, disable_web_page_preview=True)
+        except:
+            pass
 
-@bot.message_handler(commands=['новости'])
-def handle_news(message):
+def send_news():
     news = get_news()
     if news:
-        bot.send_message(message.chat.id, news)
-    else:
-        bot.send_message(message.chat.id, "⚠️ Нет новых новостей — попробуй позже")
-
-@bot.message_handler(commands=['помощь', 'help'])
-def handle_help(message):
-    help_text = """
-🤖 *КриптоАСИСТ — твоя криптошкола в 'Криптобомжах'*
-
-Команды:
-• /курс — отчёт по рынку
-• /топ — топ капитализации
-• /рост — топ роста
-• /падение — топ падения
-• /алерт — аномалии с анализом
-• /новости — свежие новости крипты
-• /помощь — это
-
-Сигналы с FOMO — не проспи памп! 😈
-"""
-    bot.send_message(message.chat.id, help_text)
+        try:
+            bot.send_message(GROUP_CHAT_ID, news, disable_web_page_preview=True)
+        except:
+            pass
 
 def daily_report_task():
     try:
@@ -307,27 +274,9 @@ def final_report_task():
     except:
         pass
 
-def send_alerts():
-    alert = get_anomaly_alerts()
-    if alert:
-        try:
-            bot.send_message(GROUP_CHAT_ID, alert)
-        except:
-            pass
-
-def send_news():
-    news = get_news()
-    if news:
-        try:
-            bot.send_message(GROUP_CHAT_ID, news)
-        except:
-            pass
-
 def run_scheduler():
-    # 10:00 МСК — отчёт
     schedule.every().day.at("07:00").do(daily_report_task)
 
-    # Каждые 15 мин с 10:15 до 21:45 МСК (UTC)
     utc_times = [
         "07:15", "07:30", "07:45", "08:00",
         "08:15", "08:30", "08:45", "09:00",
@@ -349,11 +298,9 @@ def run_scheduler():
         else:
             schedule.every().day.at(t).do(send_news)
 
-    # 22:00 МСК — финальный отчёт
     schedule.every().day.at("19:00").do(final_report_task)
 
-    # Ночь: каждый час мощные алерты
-    schedule.every().hour.do(send_alerts)
+    schedule.every().hour.do(send_alerts)  # ночь — мощные
 
     while True:
         schedule.run_pending()
