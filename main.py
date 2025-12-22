@@ -279,9 +279,7 @@ def get_news():
         for entry in feed.entries:
             link = entry.link
             title = entry.title.strip()
-            if link not in sent_news_urls and SequenceMatcher(None, title.lower(), "").ratio() > 0.8 for sent in sent_news_titles:
-                continue
-            if link not in unique_entries:
+            if link not in sent_news_urls and not any(SequenceMatcher(None, title.lower(), sent).ratio() > 0.8 for sent in sent_news_titles):
                 unique_entries[link] = title
 
         if not unique_entries:
