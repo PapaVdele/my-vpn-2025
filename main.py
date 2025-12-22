@@ -65,40 +65,6 @@ def format_price(price):
         return f"${price:.8f}".rstrip('0').rstrip('.')
     return f"${price:,.2f}"
 
-def get_top_cap(n=10):
-    try:
-        url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1"
-        data = requests.get(url, timeout=15).json()
-        filtered = [coin for coin in data if not is_stable(coin)][:n]
-        msg = f"🏆 Топ-{n} по капитализации (без стейблов):\n\n"
-        for i, coin in enumerate(filtered, 1):
-            msg += f"{i}. {coin['symbol'].upper()}: {format_price(coin['current_price'])}\n"
-        return msg
-    except:
-        return "⚠️ Проблема с данными — попробуй позже"
-
-def get_top_growth(n=10):
-    data = get_crypto_data()
-    if not data['all_coins']:
-        return "⚠️ Проблема с данными — попробуй позже"
-    msg = f"🚀 Топ-{n} роста за 24ч:\n\n"
-    sorted_growth = sorted(data['all_coins'], key=lambda x: x.get('price_change_percentage_24h', 0) or 0, reverse=True)[:n]
-    for i, coin in enumerate(sorted_growth, 1):
-        change = coin.get('price_change_percentage_24h', 0)
-        msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
-    return msg
-
-def get_top_drop(n=10):
-    data = get_crypto_data()
-    if not data['all_coins']:
-        return "⚠️ Проблема с данными — попробуй позже"
-    msg = f"📉 Топ-{n} падения за 24ч:\n\n"
-    sorted_drop = sorted(data['all_coins'], key=lambda x: x.get('price_change_percentage_24h', 0) or 0)[:n]
-    for i, coin in enumerate(sorted_drop, 1):
-        change = coin.get('price_change_percentage_24h', 0)
-        msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
-    return msg
-
 def create_daily_report():
     data = get_crypto_data()
     if not data['all_coins']:
@@ -152,8 +118,8 @@ def get_anomaly_alerts(is_night=False):
         coin_id = coin['id']
 
         if is_night:
-            if not (volume > 50000000 and (price_change < -10 or volume > market_cap * 0.2)):
-                continue  # только мощные ночью
+            if not (volume > 50000000 and abs(price_change) > 10):
+                continue
         else:
             if not (volume > 20000000 and market_cap > 100000000 and price > 0.001 and ath_change < -80):
                 continue
@@ -198,7 +164,7 @@ def get_anomaly_alerts(is_night=False):
             volume_str = "аномально высокий"
             status = "новый сигнал — возможная аккумуляция!"
 
-        value = "Как TRX — надёжный, как золото, всегда идёт наверх. Аккумулировал объём, ждём роста."
+        value = "Надёжный аккумулятор на дне — киты грузят, ждут отскока."
 
         humor = random.choice(fomo_phrases)
 
@@ -206,12 +172,12 @@ def get_anomaly_alerts(is_night=False):
         alert += f"{coin['name']} ({coin['symbol'].upper()})\n"
         alert += f"Цена: ${format_price(price)} ({price_str})\n"
         alert += f"Объём 24h: ${volume:,.0f} ({volume_str})\n"
-        alert += value + "\n"
+        alert += f"{value}\n"
         if ath_change < -80:
             alert += f"На дне: {ath_change:.1f}% от ATH 🔥\n"
         alert += long_fomo
         alert += fomo
-        alert += "\n" + humor + "\n"
+        alert += f"\n{humor}\n"
         alert += f"Ссылка: https://www.coingecko.com/en/coins/{coin_id}"
 
         try:
@@ -233,7 +199,7 @@ def get_anomaly_alerts(is_night=False):
 
     return "\n\n".join(alerts) if alerts else None
 
-def get_news(update_time=False):
+def get_news():
     global sent_news_urls
     try:
         sources = [
@@ -331,23 +297,19 @@ def final_report():
     except:
         pass
 
-def anomaly_check():
-    alert = get_anomaly_alerts()
+def hourly_update():
+    current_hour = datetime.now().hour  # UTC
+    msk_hour = (current_hour + 3) % 24  # МСК = UTC + 3
+
+    is_night = msk_hour < 10 or msk_hour >= 22  # ночь 22:00–10:00 МСК
+
+    alert = get_anomaly_alerts(is_night=is_night)
     if alert:
         try:
             bot.send_message(GROUP_CHAT_ID, alert)
         except:
             pass
 
-def night_anomaly_check():
-    alert = get_anomaly_alerts(is_night=True)  # мощные
-    if alert:
-        try:
-            bot.send_message(GROUP_CHAT_ID, alert)
-        except:
-            pass
-
-def news_report():
     news = get_news()
     if news:
         try:
@@ -356,23 +318,9 @@ def news_report():
             pass
 
 def run_scheduler():
-    # День: 10:00 отчёт
-    schedule.every().day.at("07:00").do(daily_report)  # 10:00 МСК = 07:00 UTC
-
-    # День: интервалы 15 мин от 10:15 до 22:00
-    times = ["07:15", "07:30", "07:45", "08:00", "08:15", "08:30", "08:45", "09:00", "09:15", "09:30", "09:45", "10:00", "10:15", "10:30", "10:45", "11:00", "11:15", "11:30", "11:45", "12:00", "12:15", "12:30", "12:45", "13:00", "13:15", "13:30", "13:45", "14:00", "14:15", "14:30", "14:45", "15:00", "15:15", "15:30", "15:45", "16:00", "16:15", "16:30", "16:45", "17:00", "17:15", "17:30", "17:45", "18:00", "18:15", "18:30", "18:45", "19:00"]
-    for i, t in enumerate(times):
-        if i % 2 == 0:
-            schedule.every().day.at(t).do(anomaly_check)
-        else:
-            schedule.every().day.at(t).do(news_report)
-
-    # 22:00 МСК = 19:00 UTC — финальный отчёт
-    schedule.every().day.at("19:00").do(final_report)
-
-    # Ночь: каждый час редкие мощные
-    schedule.every().hour.from_("19:00").to("07:00").do(night_anomaly_check)
-
+    schedule.every().day.at("07:00").do(daily_report)  # 10:00 МСК
+    schedule.every().day.at("19:00").do(final_report)  # 22:00 МСК
+    schedule.every().hour.do(hourly_update)
     while True:
         schedule.run_pending()
         time.sleep(1)
