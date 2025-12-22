@@ -14,7 +14,7 @@ GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-last_alerts = {}
+last_alerts = {}  # coin_id: {'time': dt, 'price': float, 'volume': int, 'message_id': int, 'history': list}
 
 sent_news_urls = set()
 sent_news_titles = set()
@@ -196,9 +196,11 @@ def get_anomaly_alerts():
 
         for h in history[:-1]:
             days = (current_time - h['time']).days
+            if days == 0:
+                days = 1
             long_diff = ((price - h['price']) / h['price']) * 100 if h['price'] > 0 else 0
-            if long_diff > 50:
-                long_fomo += f"С сигнала {days} дней назад +{long_diff:.2f}%! Бомжи, действуйте — рубль на веру 😏\n"
+            if long_diff > 20:
+                long_fomo += f"С сигнала {days} дней назад уже +{long_diff:.2f}% (с ${format_price(h['price'])} до ${format_price(price)})! Кто-то урвал, а вы? 😏\n"
 
         if 'time' in last:
             time_diff = current_time - last['time']
@@ -216,7 +218,7 @@ def get_anomaly_alerts():
             status = "сигнал усиливается 🔥" if price_diff > 0 and volume_diff > 20 else "сигнал слабеет ⚠️"
 
             if price_diff > 10:
-                fomo = f"С прошлого сигнала уже {price_diff:+.2f}%! Кто-то из бомжей урвал, а вы? 😏\n"
+                fomo = f"С последнего сигнала уже +{price_diff:+.2f}%! Киты улыбаются, а вы всё ждёте?\n"
 
         else:
             if not (-15 < price_change < 12 and volume > market_cap * 0.1):
@@ -225,7 +227,7 @@ def get_anomaly_alerts():
             volume_str = "аномально высокий"
             status = "новый сигнал — возможная аккумуляция!"
 
-        value = "Надёжный аккумулятор на дне — киты грузят, ждут отскока."
+        value = "Надёжный аккумулятор на дне — киты грузят, ждут мощного отскока."
 
         humor = random.choice(fomo_phrases)
 
