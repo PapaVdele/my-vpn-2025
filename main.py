@@ -13,9 +13,9 @@ GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-last_alerts = {}  # coin_id: {'time': dt, 'price': float, 'volume': int, 'message_id': int, 'history': list}
+last_alerts = {}
 
-last_group_news_time = datetime.min  # для группы — без дублей
+sent_news_urls = set()
 
 STABLE_KEYWORDS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'FDUSD', 'PYUSD', 'FRAX', 'USDE', 'USD', 'BSC-USD', 'BRIDGED', 'WRAPPED', 'STETH', 'WBTC', 'CBBTC', 'WETH', 'WSTETH', 'CBETH']
 
@@ -128,7 +128,7 @@ def create_daily_report():
     msg += "\nИсточник: CoinGecko"
     return msg
 
-def get_anomaly_alerts():
+def get_anomaly_alerts(is_night=False):
     data = get_crypto_data()
     if not data['all_coins']:
         return None
@@ -151,8 +151,12 @@ def get_anomaly_alerts():
         price = coin.get('current_price', 0)
         coin_id = coin['id']
 
-        if not (volume > 20000000 and market_cap > 100000000 and price > 0.001 and ath_change < -80):
-            continue
+        if is_night:
+            if not (volume > 50000000 and (price_change < -10 or volume > market_cap * 0.2)):
+                continue  # только мощные ночью
+        else:
+            if not (volume > 20000000 and market_cap > 100000000 and price > 0.001 and ath_change < -80):
+                continue
 
         last = last_alerts.get(coin_id, {'history': []})
 
@@ -194,7 +198,7 @@ def get_anomaly_alerts():
             volume_str = "аномально высокий"
             status = "новый сигнал — возможная аккумуляция!"
 
-        value = "Надёжный аккумулятор на дне — киты грузят, ждут отскока."
+        value = "Как TRX — надёжный, как золото, всегда идёт наверх. Аккумулировал объём, ждём роста."
 
         humor = random.choice(fomo_phrases)
 
@@ -202,12 +206,12 @@ def get_anomaly_alerts():
         alert += f"{coin['name']} ({coin['symbol'].upper()})\n"
         alert += f"Цена: ${format_price(price)} ({price_str})\n"
         alert += f"Объём 24h: ${volume:,.0f} ({volume_str})\n"
-        alert += f"{value}\n"
+        alert += value + "\n"
         if ath_change < -80:
             alert += f"На дне: {ath_change:.1f}% от ATH 🔥\n"
         alert += long_fomo
         alert += fomo
-        alert += f"\n{humor}\n"
+        alert += "\n" + humor + "\n"
         alert += f"Ссылка: https://www.coingecko.com/en/coins/{coin_id}"
 
         try:
@@ -230,7 +234,7 @@ def get_anomaly_alerts():
     return "\n\n".join(alerts) if alerts else None
 
 def get_news(update_time=False):
-    global last_group_news_time
+    global sent_news_urls
     try:
         sources = [
             "https://forklog.com/feed",
@@ -242,24 +246,21 @@ def get_news(update_time=False):
             try:
                 feed = feedparser.parse(url)
                 for entry in feed.entries:
-                    pub_time = datetime.fromtimestamp(time.mktime(entry.published_parsed)) if 'published_parsed' in entry else datetime.now()
-                    if pub_time > last_group_news_time:
-                        all_new_entries.append((pub_time, entry.title, entry.link))
+                    link = entry.link
+                    if link not in sent_news_urls:
+                        all_new_entries.append((entry.title, link))
             except:
                 continue
 
         if not all_new_entries:
             return None
 
-        all_new_entries.sort(reverse=True)
         top3 = all_new_entries[:3]
 
         msg = "📰 Топ-3 свежих новостей крипты:\n\n"
-        for pub_time, title, link in top3:
+        for title, link in top3:
             msg += f"{title}\n{link}\n\n"
-
-        if update_time:
-            last_group_news_time = top3[0][0]
+            sent_news_urls.add(link)
 
         return msg
     except:
@@ -291,7 +292,7 @@ def handle_alert(message):
 
 @bot.message_handler(commands=['новости'])
 def handle_news(message):
-    news = get_news(update_time=False)
+    news = get_news()
     if news:
         bot.send_message(message.chat.id, news)
     else:
@@ -321,14 +322,33 @@ def daily_report():
     except:
         pass
 
-def hourly_update():
+def final_report():
+    try:
+        msg = "📊 Финальный отчёт за день — лидеры роста и дна:\n\n"
+        msg += get_top_growth(5) + "\n"
+        msg += get_top_drop(5)
+        bot.send_message(GROUP_CHAT_ID, msg)
+    except:
+        pass
+
+def anomaly_check():
     alert = get_anomaly_alerts()
     if alert:
         try:
             bot.send_message(GROUP_CHAT_ID, alert)
         except:
             pass
-    news = get_news(update_time=True)
+
+def night_anomaly_check():
+    alert = get_anomaly_alerts(is_night=True)  # мощные
+    if alert:
+        try:
+            bot.send_message(GROUP_CHAT_ID, alert)
+        except:
+            pass
+
+def news_report():
+    news = get_news()
     if news:
         try:
             bot.send_message(GROUP_CHAT_ID, news)
@@ -336,8 +356,23 @@ def hourly_update():
             pass
 
 def run_scheduler():
-    schedule.every().day.at("06:55").do(daily_report)
-    schedule.every().hour.do(hourly_update)
+    # День: 10:00 отчёт
+    schedule.every().day.at("07:00").do(daily_report)  # 10:00 МСК = 07:00 UTC
+
+    # День: интервалы 15 мин от 10:15 до 22:00
+    times = ["07:15", "07:30", "07:45", "08:00", "08:15", "08:30", "08:45", "09:00", "09:15", "09:30", "09:45", "10:00", "10:15", "10:30", "10:45", "11:00", "11:15", "11:30", "11:45", "12:00", "12:15", "12:30", "12:45", "13:00", "13:15", "13:30", "13:45", "14:00", "14:15", "14:30", "14:45", "15:00", "15:15", "15:30", "15:45", "16:00", "16:15", "16:30", "16:45", "17:00", "17:15", "17:30", "17:45", "18:00", "18:15", "18:30", "18:45", "19:00"]
+    for i, t in enumerate(times):
+        if i % 2 == 0:
+            schedule.every().day.at(t).do(anomaly_check)
+        else:
+            schedule.every().day.at(t).do(news_report)
+
+    # 22:00 МСК = 19:00 UTC — финальный отчёт
+    schedule.every().day.at("19:00").do(final_report)
+
+    # Ночь: каждый час редкие мощные
+    schedule.every().hour.from_("19:00").to("07:00").do(night_anomaly_check)
+
     while True:
         schedule.run_pending()
         time.sleep(1)
