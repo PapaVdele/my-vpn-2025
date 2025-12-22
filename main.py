@@ -15,7 +15,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 
 last_alerts = {}  # coin_id: {'time': dt, 'price': float, 'volume': int, 'message_id': int, 'history': list}
 
-last_group_news_time = datetime.min  # только для группы
+last_group_news_time = datetime.min  # для группы — без дублей
 
 STABLE_KEYWORDS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'FDUSD', 'PYUSD', 'FRAX', 'USDE', 'USD', 'BSC-USD', 'BRIDGED', 'WRAPPED', 'STETH', 'WBTC', 'CBBTC', 'WETH', 'WSTETH', 'CBETH']
 
@@ -239,11 +239,14 @@ def get_news(update_time=False):
         ]
         all_new_entries = []
         for url in sources:
-            feed = feedparser.parse(url)
-            for entry in feed.entries:
-                pub_time = datetime.fromtimestamp(time.mktime(entry.published_parsed)) if 'published_parsed' in entry else datetime.now()
-                if pub_time > last_group_news_time:
-                    all_new_entries.append((pub_time, entry.title, entry.link))
+            try:
+                feed = feedparser.parse(url)
+                for entry in feed.entries:
+                    pub_time = datetime.fromtimestamp(time.mktime(entry.published_parsed)) if 'published_parsed' in entry else datetime.now()
+                    if pub_time > last_group_news_time:
+                        all_new_entries.append((pub_time, entry.title, entry.link))
+            except:
+                continue
 
         if not all_new_entries:
             return None
