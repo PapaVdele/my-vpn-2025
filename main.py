@@ -270,24 +270,41 @@ def get_anomaly_alerts():
     return full_msg
 
 def get_news():
-    global sent_news_urls, sent_news_titles
+    global current_source_index, sent_news_urls, sent_news_titles
     try:
-        all_new_entries = []
-        used_sources = set()
-        for source_name, url in sources:
-            try:
-                feed = feedparser.parse(url)
-                for entry in feed.entries:
-                    link = entry.link
-                    title = entry.title.strip()
-                    if link not in sent_news_urls and not any(SequenceMatcher(None, title.lower(), sent).ratio() > 0.8 for sent in sent_news_titles):
-                        all_new_entries.append((title, link, source_name))
-                        used_sources.add(source_name)
-            except:
-                continue
+        source_name, url = sources[current_source_index]
+        current_source_index = (current_source_index + 1) % len(sources)
 
-        if not all_new_entries:
+        feed = feedparser.parse(url)
+
+        new_entries = []
+        for entry in feed.entries:
+            link = entry.link
+            title = entry.title.strip()
+            if link not in sent_news_urls and not any(SequenceMatcher(None, title.lower(), sent).ratio() > 0.8 for sent in sent_news_titles):
+                new_entries.append((title, link))
+
+        if not new_entries:
             return None
+
+        top_entries = new_entries[:3]
+
+        humor_headers = [
+            f"📰 Свежак от {source_name} — бомжи, читайте, пока не поздно 😏",
+            f"🔥 Горячая инфа от {source_name} — киты уже в курсе!",
+            f"📢 Новости от {source_name} — не скам, проверено!"
+        ]
+        header = random.choice(humor_headers)
+
+        msg = f"{header}\n\n"
+        for title, link in top_entries:
+            msg += f"{title}\n{link}\n\n"
+            sent_news_urls.add(link)
+            sent_news_titles.add(title.lower())
+
+        return msg
+    except:
+        return None
 
         top3 = all_new_entries[:3]
 
