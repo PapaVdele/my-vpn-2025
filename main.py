@@ -9,16 +9,13 @@ import feedparser
 import random
 from difflib import SequenceMatcher
 from datetime import timezone
-from googletrans import Translator
-
-translator = Translator()
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-last_alerts = {}
+last_alerts = {}  # coin_id: {'time': dt, 'price': float, 'volume': int, 'big_message_id': int, 'history': list}
 
 sent_news_urls = set()
 sent_news_titles = set()
@@ -37,6 +34,63 @@ sources = [
     ("Coindesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
     ("CryptoPotato", "https://cryptopotato.com/feed/")
 ]
+
+# Простой словарь для перевода ключевых слов в английских заголовках
+english_to_russian = {
+    "Bitcoin": "Биткоин",
+    "Ethereum": "Эфириум",
+    "Solana": "Солана",
+    "Crypto": "Крипта",
+    "Market": "Рынок",
+    "Price": "Цена",
+    "ETF": "ETF",
+    "Approval": "Одобрение",
+    "Regulation": "Регуляция",
+    "Halving": "Халвинг",
+    "Whale": "Кит",
+    "Pump": "Памп",
+    "Dump": "Дамп",
+    "Bull": "Бычий",
+    "Bear": "Медвежий",
+    "News": "Новости",
+    "Update": "Обновление",
+    "Launch": "Запуск",
+    "Partnership": "Партнёрство",
+    "Hack": "Взлом",
+    "Scam": "Скам",
+    "Airdrop": "Аирдроп",
+    "Staking": "Стейкинг",
+    "DeFi": "DeFi",
+    "NFT": "NFT",
+    "Metaverse": "Метавселенная",
+    "Web3": "Web3",
+    "AI": "ИИ",
+    "Blockchain": "Блокчейн",
+    "Mining": "Майнинг",
+    "Wallet": "Кошелёк",
+    "Exchange": "Биржа",
+    "Trading": "Трейдинг",
+    "Volume": "Объём",
+    "Rise": "Рост",
+    "Fall": "Падение",
+    "Record": "Рекорд",
+    "Breakthrough": "Прорыв",
+    "Adoption": "Принятие",
+    "Ban": "Запрет",
+    "Law": "Закон",
+    "SEC": "SEC",
+    "Trump": "Трамп",
+    "Musk": "Маск",
+    "Vitalik": "Виталик"
+}
+
+def translate_title(title):
+    translated = title
+    for eng, ru in english_to_russian.items():
+        translated = translated.replace(eng, ru).replace(eng.lower(), ru.lower()).replace(eng.title(), ru)
+    if translated != title:
+        translated += " (перевод)"
+    return translated
 
 STABLE_KEYWORDS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'FDUSD', 'PYUSD', 'FRAX', 'USDE', 'USD', 'BSC-USD', 'BRIDGED', 'WRAPPED', 'STETH', 'WBTC', 'CBBTC', 'WETH', 'WSTETH', 'CBETH']
 
@@ -274,12 +328,9 @@ def get_anomaly_alerts():
     try:
         sent = bot.send_message(GROUP_CHAT_ID, full_msg, reply_to_message_id=reply_id, disable_web_page_preview=True)
         big_message_id = sent.message_id
-        # Сохраняем id большого сообщения для цитирования
-        for coin_id in [coin['id'] for coin in data['all_coins'] if 'id' in coin]:
-            if coin_id in last_alerts:
-                last_alerts[coin_id]['big_message_id'] = big_message_id
-            else:
-                last_alerts[coin_id] = {'big_message_id': big_message_id}
+        for coin in data['all_coins']:
+            if coin['id'] in last_alerts:
+                last_alerts[coin['id']]['big_message_id'] = big_message_id
     except:
         pass
 
@@ -295,12 +346,9 @@ def get_news():
             for entry in feed.entries:
                 link = entry.link
                 title = entry.title.strip()
-                # Перевод английских заголовков
+                # Перевод ключевых слов для английских
                 if "EN" in source_name or "coindesk" in url or "cryptopotato" in url:
-                    try:
-                        title = translator.translate(title, dest='ru').text
-                    except:
-                        pass
+                    title = translate_title(title)
                 if link not in sent_news_urls and not any(SequenceMatcher(None, title.lower(), sent).ratio() > 0.8 for sent in sent_news_titles):
                     all_new_entries.append((title, link, source_name))
                     used_sources.add(source_name)
