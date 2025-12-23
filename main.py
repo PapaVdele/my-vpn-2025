@@ -26,6 +26,8 @@ sent_news_titles = set()
 last_daily_report_date = None
 last_final_report_date = None
 
+last_alert_time = datetime.min
+
 sources = [
     ("ForkLog", "https://forklog.com/feed"),
     ("Bits.media", "https://bits.media/rss/"),
@@ -247,7 +249,7 @@ def get_anomaly_alerts():
 
         humor = random.choice(fomo_phrases)
 
-        alert_block = f"🚨 АНОМАЛЬНЫЙ ОБЪЁМ — {status} 🚨\n\n"
+        alert_block = f"🚨 АНОМАЛЬНЫЙ ОБЁМ — {status} 🚨\n\n"
         alert_block += f"{coin['name']} ({coin['symbol'].upper()})\n"
         alert_block += f"Цена: ${format_price(price)} ({price_str})\n"
         alert_block += f"Объём 24h: ${volume:,.0f} ({volume_str})\n"
