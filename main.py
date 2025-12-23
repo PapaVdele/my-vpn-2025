@@ -303,7 +303,8 @@ def get_news():
             sent_news_titles.add(title.lower())
 
         return msg
-    except:
+    except Exception as e:
+        print(f"News error: {e}")
         return None
 
         top3 = all_new_entries[:3]
