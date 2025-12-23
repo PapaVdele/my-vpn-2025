@@ -14,7 +14,7 @@ GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-last_alerts = {}  # coin_id: {'time': dt, 'price': float, 'volume': int, 'message_id': int, 'history': list}
+last_alerts = {}
 
 sent_news_urls = set()
 sent_news_titles = set()
@@ -82,7 +82,7 @@ def get_top_cap(n=10):
     msg = f"🏆 Топ-{n} по капитализации (без стейблов):\n\n"
     sorted_cap = sorted(data['all_coins'], key=lambda x: x.get('market_cap', 0) or 0, reverse=True)[:n]
     for i, coin in enumerate(sorted_cap, 1):
-        msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}): ${coin['market_cap']:,.0f} | ${format_price(coin['current_price'])}\n"
+        msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — ${coin['market_cap']:,.0f} ({format_price(coin['current_price'])})\n"
     msg += "\nИсточник: CoinGecko"
     return msg
 
@@ -199,8 +199,8 @@ def get_anomaly_alerts():
             if days == 0:
                 days = 1
             long_diff = ((price - h['price']) / h['price']) * 100 if h['price'] > 0 else 0
-            if long_diff > 20:
-                long_fomo += f"С сигнала {days} дней назад уже +{long_diff:.2f}% (с ${format_price(h['price'])} до ${format_price(price)})! Кто-то урвал, а вы? 😏\n"
+            if long_diff > 50:
+                long_fomo += f"С сигнала {days} дней назад +{long_diff:.2f}%! Бомжи, действуйте — рубль на веру 😏\n"
 
         if 'time' in last:
             time_diff = current_time - last['time']
@@ -218,7 +218,7 @@ def get_anomaly_alerts():
             status = "сигнал усиливается 🔥" if price_diff > 0 and volume_diff > 20 else "сигнал слабеет ⚠️"
 
             if price_diff > 10:
-                fomo = f"С последнего сигнала уже +{price_diff:+.2f}%! Киты улыбаются, а вы всё ждёте?\n"
+                fomo = f"С прошлого сигнала уже {price_diff:+.2f}%! Кто-то из бомжей урвал, а вы? 😏\n"
 
         else:
             if not (-15 < price_change < 12 and volume > market_cap * 0.1):
@@ -227,11 +227,11 @@ def get_anomaly_alerts():
             volume_str = "аномально высокий"
             status = "новый сигнал — возможная аккумуляция!"
 
-        value = "Надёжный аккумулятор на дне — киты грузят, ждут мощного отскока."
+        value = "Надёжный аккумулятор на дне — киты грузят, ждут отскока."
 
         humor = random.choice(fomo_phrases)
 
-        alert = f"🚨 АНОМАЛЬНЫЙ ОБЪЁМ — {status} 🚨\n\n"
+        alert = f"🚨 АНОМАЛЬНЫЙ ОБЁЁМ — {status} 🚨\n\n"
         alert += f"{coin['name']} ({coin['symbol'].upper()})\n"
         alert += f"Цена: ${format_price(price)} ({price_str})\n"
         alert += f"Объём 24h: ${volume:,.0f} ({volume_str})\n"
@@ -244,7 +244,7 @@ def get_anomaly_alerts():
         alert += f"Подробности: coingecko.com/en/coins/{coin_id}"
 
         try:
-            sent = bot.send_message(GROUP_CHAT_ID, alert, reply_to_message_id=reply_id, disable_web_page_preview=True)
+            sent = bot.send_message(GROUP_CHAT_ID, alert, reply_to_message_id=reply_id)
             last_alerts[coin_id] = {
                 'time': current_time,
                 'price': price,
@@ -272,26 +272,30 @@ def get_anomaly_alerts():
 def get_news():
     global current_source_index, sent_news_urls, sent_news_titles
     try:
-        source_name, url = sources[current_source_index]
-        current_source_index = (current_source_index + 1) % len(sources)
+        all_new_entries = []
+        for source_name, url in sources:
+            feed = feedparser.parse(url)
+            for entry in feed.entries:
+                link = entry.link
+                title = entry.title.strip()
+                if link not in sent_news_urls and not any(SequenceMatcher(None, title.lower(), sent).ratio() > 0.8 for sent in sent_news_titles):
+                    all_new_entries.append((title, link, source_name))
 
-        feed = feedparser.parse(url)
-
-        unique_entries = {}
-        for entry in feed.entries:
-            link = entry.link
-            title = entry.title.strip()
-            if link not in sent_news_urls and not any(SequenceMatcher(None, title.lower(), sent).ratio() > 0.8 for sent in sent_news_titles):
-                unique_entries[link] = title
-
-        if not unique_entries:
+        if not all_new_entries:
             return None
 
-        top3 = list(unique_entries.items())[:3]
+        top3 = all_new_entries[:3]
 
-        msg = f"📰 Свежак от {source_name} — бомжи, читайте, пока не поздно 😏\n\n"
-        for link, title in top3:
-            msg += f"{title}\n{link}\n\n"
+        humor_headers = [
+            "📰 Свежие новости крипты — бомжи, читайте, пока не поздно 😏",
+            "🔥 Горячий микс новостей — киты уже в курсе, а вы?",
+            "📢 Инфа из разных источников — не скам, проверено криптобомжами!"
+        ]
+        header = random.choice(humor_headers)
+
+        msg = f"{header}\n\n"
+        for title, link, source_name in top3:
+            msg += f"[{source_name}] {title}\n{link}\n\n"
             sent_news_urls.add(link)
             sent_news_titles.add(title.lower())
 
@@ -404,6 +408,14 @@ def run_scheduler():
     schedule.every().day.at("19:00").do(final_report_task)
 
     schedule.every().hour.do(send_alerts)
+
+    # Просыпание при запуске
+    current_utc = datetime.utcnow()
+    current_msk_hour = (current_utc.hour + 3) % 24
+    if 10 <= current_msk_hour < 22:
+        daily_report_task()
+    elif current_msk_hour >= 22:
+        final_report_task()
 
     while True:
         schedule.run_pending()
