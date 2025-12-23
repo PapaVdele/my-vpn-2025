@@ -274,7 +274,6 @@ def get_anomaly_alerts():
     try:
         sent = bot.send_message(GROUP_CHAT_ID, full_msg, reply_to_message_id=reply_id, disable_web_page_preview=True)
         big_message_id = sent.message_id
-        # Сохраняем id большого сообщения для цитирования следующего
         for coin_id in [coin['id'] for coin in data['all_coins'] if coin['id'] in last_alerts]:
             last_alerts[coin_id]['big_message_id'] = big_message_id
     except:
@@ -292,7 +291,6 @@ def get_news():
             for entry in feed.entries:
                 link = entry.link
                 title = entry.title.strip()
-                # Полный перевод английских заголовков
                 if "EN" in source_name or "coindesk" in url or "cryptopotato" in url:
                     try:
                         title = translator.translate(title)
@@ -327,8 +325,6 @@ def get_news():
         return msg
     except:
         return None
-
-# команды
 
 @bot.message_handler(commands=['курс'])
 def handle_kurs(message):
