@@ -8,7 +8,7 @@ import os
 import feedparser
 import random
 from difflib import SequenceMatcher
-from datetime import timezone  # для фикса warning
+from datetime import timezone
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
@@ -20,10 +20,16 @@ last_alerts = {}
 sent_news_urls = set()
 sent_news_titles = set()
 
+last_daily_report_date = None  # фикс дублей утреннего отчёта
+last_final_report_date = None  # фикс дублей финального
+
 sources = [
     ("ForkLog", "https://forklog.com/feed"),
     ("Bits.media", "https://bits.media/rss/"),
-    ("RBC Crypto", "https://www.rbc.ru/crypto/rss")
+    ("RBC Crypto", "https://www.rbc.ru/crypto/rss"),
+    ("Cointelegraph RU", "https://cointelegraph.com/ru/rss"),
+    ("BeInCrypto RU", "https://beincrypto.com/ru/rss"),
+    ("Crypto.ru", "https://crypto.ru/rss")
 ]
 
 STABLE_KEYWORDS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'FDUSD', 'PYUSD', 'FRAX', 'USDE', 'USD', 'BSC-USD', 'BRIDGED', 'WRAPPED', 'STETH', 'WBTC', 'CBBTC', 'WETH', 'WSTETH', 'CBETH']
@@ -64,8 +70,7 @@ def get_crypto_data():
             'top_growth': top_growth,
             'top_drop': top_drop
         }
-    except Exception as e:
-        print(f"API error: {e}")
+    except:
         return {'all_coins': [], 'top_growth': [], 'top_drop': []}
 
 def format_price(price):
@@ -82,7 +87,7 @@ def get_top_cap(n=10):
     msg = f"🏆 Топ-{n} по капитализации (без стейблов):\n\n"
     sorted_cap = sorted(data['all_coins'], key=lambda x: x.get('market_cap', 0) or 0, reverse=True)[:n]
     for i, coin in enumerate(sorted_cap, 1):
-        msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}): ${coin['market_cap']:,.0f} | ${format_price(coin['current_price'])}\n"
+        msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — ${coin['market_cap']:,.0f} ({format_price(coin['current_price'])})\n"
     msg += "\nИсточник: CoinGecko"
     return msg
 
@@ -183,7 +188,7 @@ def get_anomaly_alerts():
         price = coin.get('current_price', 0)
         coin_id = coin['id']
 
-        if not (volume > 20000000 and market_cap > 100000000 and price > 0.001 and ath_change < -80):
+        if not (volume > 10000000 and market_cap > 100000000 and price > 0.001 and ath_change < -70):
             continue
 
         last = last_alerts.get(coin_id, {'history': []})
@@ -201,6 +206,8 @@ def get_anomaly_alerts():
             long_diff = ((price - h['price']) / h['price']) * 100 if h['price'] > 0 else 0
             if long_diff > 20:
                 long_fomo += f"С сигнала {days} дней назад уже +{long_diff:.2f}% (с ${format_price(h['price'])} до ${format_price(price)})! Кто-то урвал, а вы? 😏\n"
+
+        fomo = ""
 
         if 'time' in last:
             time_diff = current_time - last['time']
@@ -227,7 +234,7 @@ def get_anomaly_alerts():
             volume_str = "аномально высокий"
             status = "новый сигнал — возможная аккумуляция!"
 
-        value = "Надёжный аккумулятор на дне — киты грузят, ждут мощного отскока."
+        value = "Надёжный аккумулятор на дне — киты грузят, ждут отскока."
 
         humor = random.choice(fomo_phrases)
 
@@ -270,49 +277,32 @@ def get_anomaly_alerts():
     return full_msg
 
 def get_news():
-    global current_source_index, sent_news_urls, sent_news_titles
+    global sent_news_urls, sent_news_titles
     try:
-        source_name, url = sources[current_source_index]
-        current_source_index = (current_source_index + 1) % len(sources)
+        all_new_entries = []
+        used_sources = set()
+        for source_name, url in sources:
+            try:
+                feed = feedparser.parse(url)
+                for entry in feed.entries:
+                    link = entry.link
+                    title = entry.title.strip()
+                    if link not in sent_news_urls and not any(SequenceMatcher(None, title.lower(), sent).ratio() > 0.8 for sent in sent_news_titles):
+                        all_new_entries.append((title, link, source_name))
+                        used_sources.add(source_name)
+            except:
+                continue
 
-        feed = feedparser.parse(url)
-
-        new_entries = []
-        for entry in feed.entries:
-            link = entry.link
-            title = entry.title.strip()
-            if link not in sent_news_urls and not any(SequenceMatcher(None, title.lower(), sent).ratio() > 0.8 for sent in sent_news_titles):
-                new_entries.append((title, link))
-
-        if not new_entries:
+        if not all_new_entries:
             return None
 
-        top_entries = new_entries[:3]
-
-        humor_headers = [
-            f"📰 Свежак от {source_name} — бомжи, читайте, пока не поздно 😏",
-            f"🔥 Горячая инфа от {source_name} — киты уже в курсе!",
-            f"📢 Новости от {source_name} — не скам, проверено!"
-        ]
-        header = random.choice(humor_headers)
-
-        msg = f"{header}\n\n"
-        for title, link in top_entries:
-            msg += f"{title}\n{link}\n\n"
-            sent_news_urls.add(link)
-            sent_news_titles.add(title.lower())
-
-        return msg
-    except Exception as e:
-        print(f"News error: {e}")
-        return None
-
+        random.shuffle(all_new_entries)
         top3 = all_new_entries[:3]
 
         humor_headers = [
             "📰 Свежие новости крипты — бомжи, читайте, пока не поздно 😏",
             "🔥 Горячий микс новостей — киты уже в курсе, а вы?",
-            "📢 Инфа из разных источников — не скам, проверено!"
+            "📢 Инфа из разных источников — не скам, проверено криптобомжами!"
         ]
         header = random.choice(humor_headers)
 
@@ -380,14 +370,24 @@ def handle_help(message):
     bot.send_message(message.chat.id, help_text)
 
 def daily_report_task():
+    global last_daily_report_date
+    today = datetime.now().date()
+    if last_daily_report_date == today:
+        return
     try:
         bot.send_message(GROUP_CHAT_ID, create_daily_report())
+        last_daily_report_date = today
     except:
         pass
 
 def final_report_task():
+    global last_final_report_date
+    today = datetime.now().date()
+    if last_final_report_date == today:
+        return
     try:
         bot.send_message(GROUP_CHAT_ID, final_day_report())
+        last_final_report_date = today
     except:
         pass
 
