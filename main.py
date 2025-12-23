@@ -26,8 +26,6 @@ sent_news_titles = set()
 last_daily_report_date = None
 last_final_report_date = None
 
-last_alert_time = datetime.min
-
 sources = [
     ("ForkLog", "https://forklog.com/feed"),
     ("Bits.media", "https://bits.media/rss/"),
@@ -188,7 +186,7 @@ def get_anomaly_alerts():
         "Пока вы 'анализируете', киты уже в позиции. Через неделю будете ныть 'почему не сказал раньше'? Говорю сейчас 😈"
     ]
 
-    reply_id = None
+    reply_id = last_alerts.get('big_message_id', None)
 
     for coin in data['all_coins']:
         volume = coin.get('total_volume', 0)
@@ -236,8 +234,6 @@ def get_anomaly_alerts():
             if price_diff > 10:
                 fomo = f"С последнего сигнала уже +{price_diff:+.2f}%! Киты улыбаются, а вы всё ждёте?\n"
 
-            reply_id = last.get('big_message_id', None)
-
         else:
             if not (-15 < price_change < 12 and volume > market_cap * 0.1):
                 continue
@@ -249,7 +245,7 @@ def get_anomaly_alerts():
 
         humor = random.choice(fomo_phrases)
 
-        alert_block = f"🚨 АНОМАЛЬНЫЙ ОБЁМ — {status} 🚨\n\n"
+        alert_block = f"🚨 АНОМАЛЬНЫЙ ОБЪЁМ — {status} 🚨\n\n"
         alert_block += f"{coin['name']} ({coin['symbol'].upper()})\n"
         alert_block += f"Цена: ${format_price(price)} ({price_str})\n"
         alert_block += f"Объём 24h: ${volume:,.0f} ({volume_str})\n"
@@ -259,9 +255,16 @@ def get_anomaly_alerts():
         alert_block += long_fomo
         alert_block += fomo
         alert_block += f"\n{humor}\n"
-        alert_block += f"Подробности: coingecko.com/en/coins/{coin_id}"
+        alert_block += f"Подробности: [CoinGecko](https://coingecko.com/en/coins/{coin_id})"
 
         alerts_blocks.append(alert_block)
+
+        last_alerts[coin_id] = {
+            'time': current_time,
+            'price': price,
+            'volume': volume,
+            'history': history
+        }
 
         if len(alerts_blocks) >= 5:
             break
@@ -275,9 +278,7 @@ def get_anomaly_alerts():
 
     try:
         sent = bot.send_message(GROUP_CHAT_ID, full_msg, reply_to_message_id=reply_id, disable_web_page_preview=True)
-        big_message_id = sent.message_id
-        for coin_id in [coin['id'] for coin in data['all_coins'] if coin['id'] in last_alerts]:
-            last_alerts[coin_id]['big_message_id'] = big_message_id
+        last_alerts['big_message_id'] = sent.message_id
     except:
         pass
 
@@ -293,11 +294,14 @@ def get_news():
             for entry in feed.entries:
                 link = entry.link
                 title = entry.title.strip()
+                original_title = title
+                if '?' in title:
+                    title = title.split('?')[0].strip()
                 if "EN" in source_name or "coindesk" in url or "cryptopotato" in url:
                     try:
                         title = translator.translate(title)
                     except:
-                        title += " (EN, перевод не удался)"
+                        title = original_title + " (EN)"
                 if link not in sent_news_urls and not any(SequenceMatcher(None, title.lower(), sent).ratio() > 0.8 for sent in sent_news_titles):
                     all_new_entries.append((title, link, source_name))
                     used_sources.add(source_name)
@@ -320,7 +324,7 @@ def get_news():
         msg = f"{header}\n\n"
         for i, (title, link, source_name) in enumerate(top3):
             emoji = random.choice(emojis)
-            msg += f"{emoji} {title}\n{link}\n\n"
+            msg += f"{emoji} [{title}]({link})\n\n"
             sent_news_urls.add(link)
             sent_news_titles.add(title.lower())
 
@@ -455,5 +459,15 @@ def run_scheduler():
 
 if __name__ == '__main__':
     print("КриптоАСИСТ ожил! 😈")
+    try:
+        alive_msg = bot.send_message(GROUP_CHAT_ID, "КриптоАСИСТ ожил! 😈")
+        bot.send_message(GROUP_CHAT_ID, "ожившим привет! 👾", reply_to_message_id=alive_msg.message_id)
+    except Exception as e:
+        print(f"Не удалось отправить приветствие: {e}")
+
     threading.Thread(target=run_scheduler, daemon=True).start()
     bot.infinity_polling(none_stop=True)
+"""
+lines = code.splitlines()
+print(len(lines))</parameter>
+</xai:function_call>
