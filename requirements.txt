@@ -2,3 +2,4 @@ pyTelegramBotAPI
 requests
 schedule
 feedparser
+googletrans==4.0.0-rc1
