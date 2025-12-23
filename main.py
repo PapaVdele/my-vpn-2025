@@ -255,16 +255,9 @@ def get_anomaly_alerts():
         alert_block += long_fomo
         alert_block += fomo
         alert_block += f"\n{humor}\n"
-        alert_block += f"Подробности: [CoinGecko](https://coingecko.com/en/coins/{coin_id})"
+        alert_block += f"Подробности: coingecko.com/en/coins/{coin_id}"
 
         alerts_blocks.append(alert_block)
-
-        last_alerts[coin_id] = {
-            'time': current_time,
-            'price': price,
-            'volume': volume,
-            'history': history
-        }
 
         if len(alerts_blocks) >= 5:
             break
@@ -278,7 +271,9 @@ def get_anomaly_alerts():
 
     try:
         sent = bot.send_message(GROUP_CHAT_ID, full_msg, reply_to_message_id=reply_id, disable_web_page_preview=True)
-        last_alerts['big_message_id'] = sent.message_id
+        big_message_id = sent.message_id
+        for coin_id in [coin['id'] for coin in data['all_coins'] if coin['id'] in last_alerts]:
+            last_alerts[coin_id]['big_message_id'] = big_message_id
     except:
         pass
 
@@ -295,13 +290,13 @@ def get_news():
                 link = entry.link
                 title = entry.title.strip()
                 original_title = title
-                if '?' in title:
-                    title = title.split('?')[0].strip()
+                if "?" in title:
+                    title = title.split("?")[0].strip()
                 if "EN" in source_name or "coindesk" in url or "cryptopotato" in url:
                     try:
                         title = translator.translate(title)
                     except:
-                        title = original_title + " (EN)"
+                        title = original_title + " (EN, перевод не удался)"
                 if link not in sent_news_urls and not any(SequenceMatcher(None, title.lower(), sent).ratio() > 0.8 for sent in sent_news_titles):
                     all_new_entries.append((title, link, source_name))
                     used_sources.add(source_name)
@@ -467,7 +462,3 @@ if __name__ == '__main__':
 
     threading.Thread(target=run_scheduler, daemon=True).start()
     bot.infinity_polling(none_stop=True)
-"""
-lines = code.splitlines()
-print(len(lines))</parameter>
-</xai:function_call>
