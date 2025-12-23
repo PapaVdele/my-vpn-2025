@@ -313,9 +313,12 @@ def get_news():
         ]
         header = random.choice(humor_headers)
 
+        emojis = ["📢", "🔥", "🚀", "💥", "📰", "⚡", "🌶️", "🎯"]
+
         msg = f"{header}\n\n"
-        for title, link, source_name in top3:
-            msg += f"{title}\n{link}\n\n"
+        for i, (title, link, source_name) in enumerate(top3):
+            emoji = random.choice(emojis)
+            msg += f"{emoji} {title}\n{link}\n\n"
             sent_news_urls.add(link)
             sent_news_titles.add(title.lower())
 
