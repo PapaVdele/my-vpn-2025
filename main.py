@@ -94,7 +94,7 @@ def get_top_cap(n=10):
     sorted_cap = sorted(data['all_coins'], key=lambda x: x.get('market_cap', 0) or 0, reverse=True)[:n]
     for i, coin in enumerate(sorted_cap, 1):
         msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — ${coin['market_cap']:,.0f} ({format_price(coin['current_price'])})\n"
-    msg += "\nИсточник: CoinGecko"
+    msg += "\nИсточник: [CoinGecko](https://coingecko.com)"
     return msg
 
 def get_top_growth(n=10):
@@ -106,7 +106,7 @@ def get_top_growth(n=10):
     for i, coin in enumerate(sorted_growth, 1):
         change = coin.get('price_change_percentage_24h', 0)
         msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
-    msg += "\nИсточник: CoinGecko"
+    msg += "\nИсточник: [CoinGecko](https://coingecko.com)"
     return msg
 
 def get_top_drop(n=10):
@@ -118,7 +118,7 @@ def get_top_drop(n=10):
     for i, coin in enumerate(sorted_drop, 1):
         change = coin.get('price_change_percentage_24h', 0)
         msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
-    msg += "\nИсточник: CoinGecko"
+    msg += "\nИсточник: [CoinGecko](https://coingecko.com)"
     return msg
 
 def create_daily_report():
@@ -147,7 +147,7 @@ def create_daily_report():
     for i, coin in enumerate(data['top_drop'][:3], 1):
         change = coin.get('price_change_percentage_24h', 0)
         msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
-    msg += "\nИсточник: CoinGecko"
+    msg += "\nИсточник: [CoinGecko](https://coingecko.com)"
     return msg
 
 def final_day_report():
@@ -245,7 +245,7 @@ def get_anomaly_alerts():
 
         humor = random.choice(fomo_phrases)
 
-        alert_block = f"🚨 АНОМАЛЬНЫЙ ОБЪЁМ — {status} 🚨\n\n"
+        alert_block = f"🚨 АНОМАЛЬНЫЙ ОБЁМ — {status} 🚨\n\n"
         alert_block += f"{coin['name']} ({coin['symbol'].upper()})\n"
         alert_block += f"Цена: ${format_price(price)} ({price_str})\n"
         alert_block += f"Объём 24h: ${volume:,.0f} ({volume_str})\n"
@@ -255,9 +255,16 @@ def get_anomaly_alerts():
         alert_block += long_fomo
         alert_block += fomo
         alert_block += f"\n{humor}\n"
-        alert_block += f"Подробности: coingecko.com/en/coins/{coin_id}"
+        alert_block += f"Подробности: [CoinGecko](https://coingecko.com/en/coins/{coin_id})"
 
         alerts_blocks.append(alert_block)
+
+        last_alerts[coin_id] = {
+            'time': current_time,
+            'price': price,
+            'volume': volume,
+            'history': history
+        }
 
         if len(alerts_blocks) >= 5:
             break
@@ -271,9 +278,7 @@ def get_anomaly_alerts():
 
     try:
         sent = bot.send_message(GROUP_CHAT_ID, full_msg, reply_to_message_id=reply_id, disable_web_page_preview=True)
-        big_message_id = sent.message_id
-        for coin_id in [coin['id'] for coin in data['all_coins'] if coin['id'] in last_alerts]:
-            last_alerts[coin_id]['big_message_id'] = big_message_id
+        last_alerts['big_message_id'] = sent.message_id
     except:
         pass
 
@@ -290,13 +295,13 @@ def get_news():
                 link = entry.link
                 title = entry.title.strip()
                 original_title = title
-                if "?" in title:
-                    title = title.split("?")[0].strip()
+                if '?' in title:
+                    title = title.split('?')[0].strip()
                 if "EN" in source_name or "coindesk" in url or "cryptopotato" in url:
                     try:
                         title = translator.translate(title)
                     except:
-                        title = original_title + " (EN, перевод не удался)"
+                        title = original_title + " (EN)"
                 if link not in sent_news_urls and not any(SequenceMatcher(None, title.lower(), sent).ratio() > 0.8 for sent in sent_news_titles):
                     all_new_entries.append((title, link, source_name))
                     used_sources.add(source_name)
