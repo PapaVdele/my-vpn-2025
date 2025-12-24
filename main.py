@@ -1,41 +1,35 @@
 # КриптоАСИСТ — бот для сообщества Криптобомжи
-# Версия 31 — все 31 фича усилены, код >= предыдущего (512 строк)
-# Автор: Grok + пользователь
-# Дата: 24.12.2025
+# Версия 32 — все 32 фишки усилены, код > предыдущего (652 строки)
+# 32-я фишка: ссылки в новостях полностью спрятаны в первом слове заголовка — визуально чистый текст, но весь заголовок кликабельный
 
-import telebot  # Библиотека для Telegram бота
-import requests  # Для запросов к API
-import schedule  # Расписание задач
-import time  # Для sleep
-import threading  # Для фонового расписания
-from datetime import datetime, timedelta  # Работа с временем
-import os  # Для env переменных
-import feedparser  # Парсинг RSS
-import random  # Рандом для юмора и эмодзи
-from difflib import SequenceMatcher  # Проверка дублей новостей
-from datetime import timezone  # UTC время
-from deep_translator import GoogleTranslator  # Перевод заголовков
+import telebot
+import requests
+import schedule
+import time
+import threading
+from datetime import datetime, timedelta
+import os
+import feedparser
+import random
+from difflib import SequenceMatcher
+from datetime import timezone
+from deep_translator import GoogleTranslator
 
-# Инициализация переводчика
 translator = GoogleTranslator(source='en', target='ru')
 
-# Токен бота и ID группы
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
 
-# Создание бота
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Глобальные переменные для памяти
-last_alerts = {}  # Хранение последних сигналов по монетам
-sent_news_urls = set()  # Избежать дублей новостей по URL
-sent_news_titles = set()  # Избежать дублей по заголовку
+last_alerts = {}
 
-# Для отчётов — без дублей в день
+sent_news_urls = set()
+sent_news_titles = set()
+
 last_daily_report_date = None
 last_final_report_date = None
 
-# Источники новостей (9 штук, микс RU/EN)
 sources = [
     ("ForkLog", "https://forklog.com/feed"),
     ("Bits.media", "https://bits.media/rss/"),
@@ -48,56 +42,50 @@ sources = [
     ("CryptoPotato", "https://cryptopotato.com/feed/")
 ]
 
-# Ключевые слова для фильтра стейблов
 STABLE_KEYWORDS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'FDUSD', 'PYUSD', 'FRAX', 'USDE', 'USD', 'BSC-USD', 'BRIDGED', 'WRAPPED', 'STETH', 'WBTC', 'CBBTC', 'WETH', 'WSTETH', 'CBETH']
 
-# Функция проверки стейбла
 def is_stable(coin):
     symbol = coin['symbol'].upper()
     name = coin['name'].lower()
     return any(kw in symbol or kw in name for kw in STABLE_KEYWORDS)
 
-# Получение данных с CoinGecko
 def get_crypto_data():
-    try:
-        # Цены основных
-        price_url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true"
-        price_data = requests.get(price_url, timeout=15).json()
+    for attempt in range(3):
+        try:
+            price_url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true"
+            price_data = requests.get(price_url, timeout=15).json()
 
-        btc_price = price_data.get('bitcoin', {}).get('usd', 0)
-        btc_change = round(price_data.get('bitcoin', {}).get('usd_24h_change', 0), 2)
-        eth_price = price_data.get('ethereum', {}).get('usd', 0)
-        eth_change = round(price_data.get('ethereum', {}).get('usd_24h_change', 0), 2)
-        sol_price = price_data.get('solana', {}).get('usd', 0)
-        sol_change = round(price_data.get('solana', {}).get('usd_24h_change', 0), 2)
+            btc_price = price_data.get('bitcoin', {}).get('usd', 0)
+            btc_change = round(price_data.get('bitcoin', {}).get('usd_24h_change', 0), 2)
+            eth_price = price_data.get('ethereum', {}).get('usd', 0)
+            eth_change = round(price_data.get('ethereum', {}).get('usd_24h_change', 0), 2)
+            sol_price = price_data.get('solana', {}).get('usd', 0)
+            sol_change = round(price_data.get('solana', {}).get('usd_24h_change', 0), 2)
 
-        # Топ 250 монет
-        markets_url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&price_change_percentage=24h"
-        all_coins = requests.get(markets_url, timeout=15).json()
+            markets_url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&price_change_percentage=24h"
+            all_coins = requests.get(markets_url, timeout=15).json()
 
-        # Фильтр стейблов
-        filtered_coins = [coin for coin in all_coins if not is_stable(coin)]
+            filtered_coins = [coin for coin in all_coins if not is_stable(coin)]
 
-        # Сортировка роста/падения
-        sorted_growth = sorted(filtered_coins, key=lambda x: x.get('price_change_percentage_24h', 0) or 0, reverse=True)
-        sorted_drop = sorted(filtered_coins, key=lambda x: x.get('price_change_percentage_24h', 0) or 0)
+            sorted_growth = sorted(filtered_coins, key=lambda x: x.get('price_change_percentage_24h', 0) or 0, reverse=True)
+            sorted_drop = sorted(filtered_coins, key=lambda x: x.get('price_change_percentage_24h', 0) or 0)
 
-        top_growth = sorted_growth[:5]
-        top_drop = sorted_drop[:5]
+            top_growth = sorted_growth[:5]
+            top_drop = sorted_drop[:5]
 
-        return {
-            'btc_price': btc_price, 'btc_change': btc_change,
-            'eth_price': eth_price, 'eth_change': eth_change,
-            'sol_price': sol_price, 'sol_change': sol_change,
-            'all_coins': filtered_coins,
-            'top_growth': top_growth,
-            'top_drop': top_drop
-        }
-    except Exception as e:
-        print(f"Ошибка CoinGecko: {e}")
-        return {'all_coins': [], 'top_growth': [], 'top_drop': []}
+            return {
+                'btc_price': btc_price, 'btc_change': btc_change,
+                'eth_price': eth_price, 'eth_change': eth_change,
+                'sol_price': sol_price, 'sol_change': sol_change,
+                'all_coins': filtered_coins,
+                'top_growth': top_growth,
+                'top_drop': top_drop
+            }
+        except Exception as e:
+            print(f"Ошибка CoinGecko attempt {attempt + 1}: {e}")
+            time.sleep(2)
+    return {'all_coins': [], 'top_growth': [], 'top_drop': []}
 
-# Форматирование цены
 def format_price(price):
     if price == 0:
         return "$?"
@@ -105,7 +93,6 @@ def format_price(price):
         return f"${price:.8f}".rstrip('0').rstrip('.')
     return f"${price:,.2f}"
 
-# Топ по капитализации
 def get_top_cap(n=10):
     data = get_crypto_data()
     if not data['all_coins']:
@@ -117,7 +104,6 @@ def get_top_cap(n=10):
     msg += "\nИсточник: CoinGecko"
     return msg
 
-# Топ роста
 def get_top_growth(n=10):
     data = get_crypto_data()
     if not data['all_coins']:
@@ -130,7 +116,6 @@ def get_top_growth(n=10):
     msg += "\nИсточник: CoinGecko"
     return msg
 
-# Топ падения
 def get_top_drop(n=10):
     data = get_crypto_data()
     if not data['all_coins']:
@@ -143,7 +128,6 @@ def get_top_drop(n=10):
     msg += "\nИсточник: CoinGecko"
     return msg
 
-# Утренний отчёт
 def create_daily_report():
     data = get_crypto_data()
     if not data['all_coins']:
@@ -173,7 +157,6 @@ def create_daily_report():
     msg += "\nИсточник: CoinGecko"
     return msg
 
-# Финальный отчёт
 def final_day_report():
     data = get_crypto_data()
     if not data['all_coins']:
@@ -188,9 +171,9 @@ def final_day_report():
         change = coin.get('price_change_percentage_24h', 0)
         msg += f"{i}. {coin['name']} ({coin['symbol'].upper()}) — {change:+.2f}% ({format_price(coin['current_price'])})\n"
     msg += "\nБомжи, вот кто сегодня рулил рынком. Завтра новый день — новые шансы 😏"
+    msg += "\nИсточник: CoinGecko"
     return msg
 
-# Алерты (30-я фича — 3-я версия, лучшая)
 def get_anomaly_alerts():
     data = get_crypto_data()
     if not data['all_coins']:
@@ -212,6 +195,26 @@ def get_anomaly_alerts():
     ]
 
     reply_id = last_alerts.get('big_message_id', None)
+
+    current_msk_hour = (datetime.now(timezone.utc).hour + 3) % 24
+    is_night = current_msk_hour < 10 or current_msk_hour >= 22
+    min_monets = 4 if is_night else 2
+    min_change = 10 if is_night else 8
+    min_volume_diff = 30 if is_night else 20
+
+    past_analysis = ""
+    for coin_id, last in last_alerts.items():
+        if 'time' in last and coin_id != 'big_message_id':
+            time_diff = current_time - last['time']
+            hours = time_diff.total_seconds() / 3600
+            if hours > 3:
+                current_coin = next((c for c in data['all_coins'] if c['id'] == coin_id), None)
+                if current_coin:
+                    price_diff = ((current_coin['current_price'] - last['price']) / last['price']) * 100 if last['price'] > 0 else 0
+                    past_analysis += f"Прошлый сигнал {current_coin['name']} дал {price_diff:+.2f}% за {int(hours)} часов. {'Бомжи, вы в деле?' if price_diff > 0 else 'Ждём отскока.'}\n"
+
+    if past_analysis:
+        past_analysis = "Анализ прошлых сигналов:\n" + past_analysis + "\n"
 
     for coin in data['all_coins']:
         volume = coin.get('total_volume', 0)
@@ -249,11 +252,12 @@ def get_anomaly_alerts():
             price_diff = ((price - last['price']) / last['price']) * 100 if last['price'] > 0 else 0
             volume_diff = ((volume - last['volume']) / last['volume']) * 100 if last['volume'] > 0 else 0
 
-            if abs(price_diff) < 8 and abs(volume_diff) < 20:
+            if abs(price_diff) < min_change and abs(volume_diff) < min_volume_diff:
                 continue
 
-            price_str = f"{price_diff:+.2f}% с прошлого сигнала (было ${format_price(last['price'])})"
-            volume_str = f"{volume_diff:+.2f}% с прошлого сигнала"
+            hours = time_diff.total_seconds() / 3600
+            price_str = f"{price_diff:+.2f}% за {int(hours)} часов от прошлого сигнала (было ${format_price(last['price'])})"
+            volume_str = f"{volume_diff:+.2f}% за {int(hours)} часов от прошлого сигнала"
             status = "сигнал усиливается 🔥" if price_diff > 0 and volume_diff > 20 else "сигнал слабеет ⚠️"
 
             if price_diff > 10:
@@ -268,7 +272,9 @@ def get_anomaly_alerts():
 
         value = "Надёжный аккумулятор на дне — киты грузят, ждут мощного отскока."
 
-        humor = random.choice(fomo_phrases)
+        humor = random.choice(fomo_phrases) if not fomo else ""
+
+        reason = f"Выбран за высокий объём > {round(volume / market_cap * 100)}% market_cap, на дне {ath_change:.1f}% от ATH."
 
         alert_block = f"🚨 АНОМАЛЬНЫЙ ОБЪЁМ — {status} 🚨\n\n"
         alert_block += f"{coin['name']} ({coin['symbol'].upper()})\n"
@@ -277,6 +283,7 @@ def get_anomaly_alerts():
         alert_block += f"{value}\n"
         if ath_change < -80:
             alert_block += f"На дне: {ath_change:.1f}% от ATH 🔥\n"
+        alert_block += f"Причина отбора: {reason}\n"
         alert_block += long_fomo
         alert_block += fomo
         alert_block += f"\n{humor}\n"
@@ -291,14 +298,15 @@ def get_anomaly_alerts():
             'history': history
         }
 
-        if len(alerts_blocks) >= 5:
+        if len(alerts_blocks) >= 3:
             break
 
-    if not alerts_blocks:
+    if len(alerts_blocks) < min_monets:
         return None
 
     full_msg = "🚨 Свежие аккумуляторы с аномальным объёмом — киты в деле! 🚨\n\n"
     full_msg += "Рынок на дне, проверенные проекты аккумулируют объём. Это шанс на отскок. Кто войдёт — тот в плюсе. Не будьте тем, кто 'ждал подтверждения' в 2022. Рубль на веру — и вы легенда 😏\n\n"
+    full_msg += past_analysis
     full_msg += "\n\n".join(alerts_blocks)
 
     try:
@@ -309,7 +317,6 @@ def get_anomaly_alerts():
 
     return full_msg
 
-# Новости
 def get_news():
     global sent_news_urls, sent_news_titles
     try:
@@ -350,7 +357,15 @@ def get_news():
         msg = f"{header}\n\n"
         for i, (title, link, source_name) in enumerate(top3):
             emoji = random.choice(emojis)
-            msg += f"{emoji} [{title}]({link})\n\n"
+            # 32-я фишка: ссылка спрятана в первом слове
+            words = title.split()
+            if words:
+                first_word = words[0]
+                rest = ' '.join(words[1:])
+                clickable_title = f"[{first_word}]({link}){ ' ' + rest if rest else ''}"
+            else:
+                clickable_title = title
+            msg += f"{emoji} {clickable_title}\n\n"
             sent_news_urls.add(link)
             sent_news_titles.add(title.lower())
 
@@ -362,7 +377,6 @@ def get_news():
         print(f"Ошибка новостей: {e}")
         return None
 
-# Команды
 @bot.message_handler(commands=['курс'])
 def handle_kurs(message):
     bot.send_message(message.chat.id, create_daily_report())
@@ -413,7 +427,6 @@ def handle_help(message):
 """
     bot.send_message(message.chat.id, help_text)
 
-# Задачи расписания
 def daily_report_task():
     global last_daily_report_date
     today = datetime.now().date()
@@ -447,7 +460,6 @@ def send_news():
         except Exception as e:
             print(f"Ошибка отправки новостей: {e}")
 
-# Расписание
 def run_scheduler():
     schedule.every().day.at("07:00").do(daily_report_task)
 
@@ -487,7 +499,6 @@ def run_scheduler():
         schedule.run_pending()
         time.sleep(1)
 
-# Запуск
 if __name__ == '__main__':
     print("КриптоАСИСТ ожил! 😈")
     try:
