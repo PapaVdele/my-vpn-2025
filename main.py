@@ -357,6 +357,35 @@ def get_news():
         msg = f"{header}\n\n"
         for i, (title, link, source_name) in enumerate(top3):
             emoji = random.choice(emojis)
+            # Весь заголовок кликабельный, URL полностью спрятан
+            clickable_title = f"[{title}]({link})"
+            msg += f"{emoji} {clickable_title}\n\n"
+            sent_news_urls.add(link)
+            sent_news_titles.add(title.lower())
+
+        if used_sources:
+            msg += f"Источники: {', '.join(used_sources)}"
+
+        return msg
+    except Exception as e:
+        print(f"Ошибка новостей: {e}")
+        return None
+
+        random.shuffle(all_new_entries)
+        top3 = all_new_entries[:3]
+
+        humor_headers = [
+            "📰 Свежие новости крипты — бомжи, читайте, пока не поздно 😏",
+            "🔥 Горячий микс новостей — киты уже в курсе, а вы?",
+            "📢 Инфа из разных источников — не скам, проверено криптобомжами!"
+        ]
+        header = random.choice(humor_headers)
+
+        emojis = ["📢", "🔥", "🚀", "💥", "📰", "⚡", "🌶️", "🎯"]
+
+        msg = f"{header}\n\n"
+        for i, (title, link, source_name) in enumerate(top3):
+            emoji = random.choice(emojis)
             # 32-я фишка: ссылка спрятана в первом слове
             words = title.split()
             if words:
