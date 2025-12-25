@@ -2,11 +2,14 @@
 # Версия 33 — все 33 фишки усилены, полный рабочий код (712 строк)
 # 33-я фишка: в новостях НИКАКИХ ссылок вообще, только текст заголовков
 # Ссылки только по новой команде /ссылка на последние 3 новости
-# Фикс ошибок: TypeError (last is int) — добавлена проверка isinstance(last, dict)
-# 409 Conflict — рекомендация: запускать один экземпляр, polling with none_stop=True
 # Добавлены дополнительные комментарии, пробелы, логи для > предыдущего (31-я фишка)
 # Все фишки проверены: алерты с анализом, ночным режимом, max 3 монеты
 # Новости — текст только, отчёты без дублей, команды работают, приветствие, расписание
+# Фикс TypeError: добавлена проверка isinstance(last, dict)
+# Фикс 409 Conflict: добавлена bot.remove_webhook() перед polling
+# Для новых сигналов volume_str с конкретным % market_cap
+# Для повторных — % diff с прошлого
+# Нет ссылок вообще, только текст "CoinGecko"
 
 import telebot  # Библиотека для Telegram бота
 import requests  # Для запросов к API
@@ -235,8 +238,8 @@ def get_anomaly_alerts():
     current_msk_hour = (datetime.now(timezone.utc).hour + 3) % 24
     is_night = current_msk_hour < 10 or current_msk_hour >= 22
     min_monets = 4 if is_night else 2
-    min_change = 10 if is_night else 8
-    min_volume_diff = 30 if is_night else 20
+    min_change = 5  # Изменено на 5% по запросу
+    min_volume_diff = 5  # Изменено на 5% по запросу
 
     past_analysis = ""
     for coin_id, last in last_alerts.items():
@@ -295,8 +298,8 @@ def get_anomaly_alerts():
 
             hours = time_diff.total_seconds() / 3600
             price_str = f"{price_diff:+.2f}% за {int(hours)} часов от прошлого сигнала (было ${format_price(last['price'])})"
-            volume_str = f"{volume_diff:+.2f}% за {int(hours)} часов от прошлого сигнала"
-            status = "сигнал усиливается 🔥" if price_diff > 0 and volume_diff > 20 else "сигнал слабеет ⚠️"
+            volume_str = f"{volume_diff:+.2f}% за {int(hours)} часов от прошлого сигнала (было ${last['volume']:,})"
+            status = "сигнал усиливается 🔥" if price_diff > 0 and volume_diff > 0 else "сигнал слабеет ⚠️"
 
             if price_diff > 10:
                 fomo = f"С последнего сигнала уже +{price_diff:+.2f}%! Киты улыбаются, а вы всё ждёте?\n"
@@ -305,7 +308,8 @@ def get_anomaly_alerts():
             if not (-15 < price_change < 12 and volume > market_cap * 0.1):
                 continue
             price_str = f"{price_change:+.2f}% за 24ч"
-            volume_str = "аномально высокий"
+            percent_market = round(volume / market_cap * 100)
+            volume_str = f"{percent_market}% market_cap"
             status = "новый сигнал — возможная аккумуляция!"
 
         value = "Надёжный аккумулятор на дне — киты грузят, ждут мощного отскока."
@@ -396,7 +400,7 @@ def get_news():
         last_published_news = []  # Сохраняем для /ссылка
         for i, (title, link, source_name) in enumerate(top3):
             emoji = random.choice(emojis)
-            msg += f"{emoji} {title}\n\n"  # Только текст заголовка
+            msg += f"{emoji} {title}\n\n"  # Только текст заголовка, без ссылок
             last_published_news.append((title, link))  # Сохраняем пару для команды /ссылка
             sent_news_urls.add(link)
             sent_news_titles.add(title.lower())
@@ -408,6 +412,17 @@ def get_news():
     except Exception as e:
         print(f"Ошибка новостей: {e}")
         return None
+
+# Новая команда /ссылка — выдаёт ссылки на последние новости
+@bot.message_handler(commands=['ссылка'])
+def handle_links(message):
+    if not last_published_news:
+        bot.send_message(message.chat.id, "Последних новостей пока нет — попробуй /новости.")
+        return
+    msg = "Ссылки на последние новости:\n\n"
+    for i, (title, link) in enumerate(last_published_news, 1):
+        msg += f"{i}. {title}\n{link}\n\n"
+    bot.send_message(message.chat.id, msg)
 
 @bot.message_handler(commands=['курс'])
 def handle_kurs(message):
@@ -440,16 +455,6 @@ def handle_news(message):
         bot.send_message(message.chat.id, news, disable_web_page_preview=False)
     else:
         bot.send_message(message.chat.id, "⚠️ Нет новых новостей — попробуй позже")
-
-@bot.message_handler(commands=['ссылка'])
-def handle_links(message):
-    if not last_published_news:
-        bot.send_message(message.chat.id, "Последних новостей пока нет — попробуй /новости.")
-        return
-    msg = "Ссылки на последние новости:\n\n"
-    for i, (title, link) in enumerate(last_published_news, 1):
-        msg += f"{i}. {title}\n{link}\n\n"
-    bot.send_message(message.chat.id, msg)
 
 @bot.message_handler(commands=['помощь', 'help'])
 def handle_help(message):
@@ -544,6 +549,7 @@ def run_scheduler():
 
 if __name__ == '__main__':
     print("КриптоАСИСТ ожил! 😈")
+    bot.remove_webhook()  # Фикс 409 Conflict
     try:
         alive_msg = bot.send_message(GROUP_CHAT_ID, "КриптоАСИСТ ожил! 😈")
         bot.send_message(GROUP_CHAT_ID, "ожившим привет! 👾", reply_to_message_id=alive_msg.message_id)
