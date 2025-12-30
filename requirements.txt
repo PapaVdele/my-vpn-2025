@@ -3,3 +3,7 @@ requests
 schedule
 feedparser
 deep-translator
+telebot
+requests
+web3
+aiohttp
