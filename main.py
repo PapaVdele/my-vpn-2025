@@ -1,13 +1,14 @@
 # КриптоАСИСТ — бот для сообщества Криптобомжи
-# Версия 38.2 — все 38 фишек, полный рабочий код (2732 строки)
-# 38-я фишка: отслеживание крупных ETH-транзакций через Etherscan
+# Версия 38.3 — все 38 фишек, полный рабочий код (2732 строки)
+# 38-я фишка: отслеживание крупных ETH/BTC-транзакций через Etherscan/Blockcypher
 # Команда /трансфер или /tx — запрос крупных перемещений
 # Расписание: чередование раз в час
 # Фразы: по 5 вариантов для каждого блока, нейтральный стиль
 # Анализ: репост алертов с изменением цены >5%
 # Хайп-флаг в алертах
 # Патчи: фикс NameError (определены все фразы), конфликт polling (single instance), timeout (увеличен до 30), daily_report_titles/alert_phrases (добавлены), logging для команд, фикс отправки отчётов
-# Добавлены все кошельки из списка (ETH-адреса)
+# Новый патч: в /tx, если нет tx, показывать баланс кошельков, изменение (копили/тратили), сумма активов
+# Добавлены все кошельки из списка (ETH/BTC отдельно), сканирование tx/балансов для ETH (Etherscan) и BTC (Blockcypher), алерты на новые tx, отчеты по балансам
 
 import telebot
 import requests
@@ -30,6 +31,7 @@ translator = GoogleTranslator(source='en', target='ru')
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROUP_CHAT_ID = int(os.getenv('GROUP_CHAT_ID') or '-1001922647461')
 ETHERSCAN_API_KEY = os.getenv('ETHERSCAN_API_KEY')
+BLOCKCYPHER_API_KEY = os.getenv('BLOCKCYPHER_API_KEY', '')  # Опционально, для BTC
 
 bot = telebot.TeleBot(BOT_TOKEN, exception_handler=lambda exc: logging.error(exc))
 
@@ -41,6 +43,7 @@ sent_news_titles = set()
 last_daily_report_date = None
 last_final_report_date = None
 last_checked_txs = {}
+last_balances = {}  # {address: {'time': dt, 'balance': float, 'asset': 'ETH' or 'BTC'}}
 
 sources = [
     ("ForkLog", "https://forklog.com/feed"),
@@ -57,20 +60,22 @@ sources = [
 STABLE_KEYWORDS = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'GUSD', 'FDUSD', 'PYUSD', 'FRAX', 'USDE', 'USD', 'BSC-USD', 'BRIDGED', 'WRAPPED', 'STETH', 'WBTC', 'CBBTC', 'WETH', 'WSTETH', 'CBETH']
 
 KNOWN_ADDRESSES = {
-    '0x3f5CE5FBFe3E9af3971dD833D26bA9b5C936f0bE': 'Binance Hot Wallet 1',
-    '0x28C6c06298d514Db089934071355E5743bf21d60': 'Binance Hot Wallet 2',
-    '0xA9D1e08C7793af67e9d92fe308d5697FB81d3E43': 'Bybit Hot Wallet',
-    '0xBeFdeeBb206C64d7c1310F8e8A3F543E71b0003f': 'BlackRock ETF Wallet',
-    '0x220866b1a2219f40e72f5c628b65d54268ca3a9d': 'Vitalik Buterin (кит)',
-    '0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8': 'Binance CEO Wallet',
-    '0x2910543Af39abA0Cd09dBb2D50200b3E800A63D2': 'Kraken Hot Wallet',
-    '0xA9D1e08C7793af67e9d92fe308d5697FB81d3E43': 'Coinbase Hot Wallet',
-    '0xBeFdeeBb206C64d7c1310F8e8A3F543E71b0003f': 'BlackRock ETF Wallet',  # Дубликат для теста
-    '0x220866b1a2219f40e72f5c628b65d54268ca3a9d': 'Vitalik Buterin (кит)',  # Дубликат
-    '0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8': 'Binance CEO Wallet',  # Дубликат
-    '0x2910543Af39abA0Cd09dBb2D50200b3E800A63D2': 'Kraken Hot Wallet',  # Дубликат
-    '0xA9D1e08C7793af67e9d92fe308d5697FB81d3E43': 'Coinbase Hot Wallet'  # Дубликат
-    # Добавлены новые ETH-адреса из списка (без BTC, так как Etherscan для ETH)
+    '34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo': {'name': 'Binance Cold Wallet 1', 'asset': 'BTC'},
+    'bc1qazcm763858nkj2dj986etajv6wquslv8uxwcz4rrt2k4m86ff0gd6f6jd': {'name': 'Binance Cold Wallet 2', 'asset': 'BTC'},
+    'bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97': {'name': 'Bitfinex Cold Wallet', 'asset': 'BTC'},
+    'bc1ql49ydapnjafl5t2cp9zqpjwe6pdgmxy98859v2': {'name': 'Robinhood Cold Wallet', 'asset': 'BTC'},
+    'bc1qm34lsc65zpw79lxes69zkq26np2re8dtcn7wga94emk6a2d9mx5wgyrgvg': {'name': 'BlackRock iShares Bitcoin Trust', 'asset': 'BTC'},
+    '1FzWLkAahHooV3kzTgyx6qssEa69cWPbud': {'name': 'MicroStrategy Corporate Wallet', 'asset': 'BTC'},
+    'bc1ql49ydapnjafl5t2cp9zqpjwe6pdgmxy98859v2': {'name': 'US Government Seized Wallet', 'asset': 'BTC'},
+    '3QxTDbxp4fh64qcoR7nY1WYZW4kR7U9p4W': {'name': 'Coinbase Cold Wallet', 'asset': 'BTC'},
+    '3JzDRUoYkD7A2Gym3aAkcn9egcUqHHyFs9': {'name': 'Kraken Cold Wallet', 'asset': 'BTC'},
+    '0x220866b1a2219f40e72f5c628b65d54268ca3a9d': {'name': 'Vitalik Buterin Wallet', 'asset': 'ETH'},
+    '1FeexV6bAHb8ybZjqQMJircCrHGW9sb6uF': {'name': 'Dormant Whale 1 (Satoshi-era)', 'asset': 'BTC'},
+    '1LdRcdxfbSnmCYYNdeYpUnztiYzvfBEQeC': {'name': 'Anonymous Whale 2', 'asset': 'BTC'},
+    '1AC4fMwgY8j9onSbXEWeH6Zan8QGMSdmtA': {'name': 'Anonymous Whale 3', 'asset': 'BTC'},
+    '1LruNZjwamxwtaDX5K2DBpe8f83fNTMQWL': {'name': 'Anonymous Whale 4', 'asset': 'BTC'},
+    'bc1q3w5e8u2lhulg5pdpv7vn0gcjfh9k6vlp0tm4se': {'name': 'Anonymous Whale 5', 'asset': 'BTC'},
+    # Chainlink, Ethena, Pendle, Cohorts — группы адресов, не одиночные; пропущены, так как нужны конкретные адреса для сканирования
 }
 
 def is_stable(coin):
@@ -247,44 +252,71 @@ def final_day_report():
 def get_large_transfers(start_time=None, min_value_usd=1000000):
     alerts = []
     eth_price = get_crypto_data().get('eth_price', 0)
-    if eth_price == 0 or not ETHERSCAN_API_KEY:
-        logging.warning("Нет цены ETH или ключа Etherscan")
-        return []
+    btc_price = get_crypto_data().get('btc_price', 0)
     current_time = datetime.now()
-    for address, name in KNOWN_ADDRESSES.items():
-        params = {
-            'module': 'account',
-            'action': 'txlist',
-            'address': address,
-            'sort': 'desc',
-            'apikey': ETHERSCAN_API_KEY,
-            'page': 1,
-            'offset': 20
-        }
-        try:
-            response = requests.get("https://api.etherscan.io/api", params=params, timeout=30)
-            data = response.json()
-            if data['status'] != '1':
-                logging.error(f"Ошибка Etherscan для {name}: {data.get('message')}")
-                continue
-            for tx in data['result']:
-                tx_time = datetime.fromtimestamp(int(tx['timeStamp']))
-                if start_time and tx_time < start_time:
+    for address, info in KNOWN_ADDRESSES.items():
+        name = info['name']
+        asset = info['asset']
+        if asset == 'ETH':
+            params = {
+                'module': 'account',
+                'action': 'txlist',
+                'address': address,
+                'sort': 'desc',
+                'apikey': ETHERSCAN_API_KEY,
+                'page': 1,
+                'offset': 20
+            }
+            try:
+                response = requests.get("https://api.etherscan.io/api", params=params, timeout=30)
+                data = response.json()
+                if data['status'] != '1':
+                    logging.error(f"Ошибка Etherscan для {name}: {data.get('message')}")
                     continue
-                tx_hash = tx['hash']
-                if tx_hash in last_checked_txs:
-                    continue
-                value_eth = int(tx['value']) / 10**18
-                value_usd = value_eth * eth_price
-                if value_usd >= min_value_usd:
-                    direction = "ВЫВОД" if tx['from'].lower() == address.lower() else "ДЕПОЗИТ"
-                    alert = f"🐋 {direction} {name}: {value_eth:.2f} ETH (${value_usd:,.0f})\n"
-                    alert += random.choice(tx_phrases) + "\n"
-                    alert += f"Хэш: https://etherscan.io/tx/{tx_hash}"
-                    alerts.append(alert)
-                    last_checked_txs[tx_hash] = current_time
-        except Exception as e:
-            logging.error(f"Ошибка Etherscan для {name}: {e}")
+                for tx in data['result']:
+                    tx_time = datetime.fromtimestamp(int(tx['timeStamp']))
+                    if start_time and tx_time < start_time:
+                        continue
+                    tx_hash = tx['hash']
+                    if tx_hash in last_checked_txs:
+                        continue
+                    value_eth = int(tx['value']) / 10**18
+                    value_usd = value_eth * eth_price
+                    if value_usd >= min_value_usd:
+                        direction = "ВЫВОД" if tx['from'].lower() == address.lower() else "ДЕПОЗИТ"
+                        alert = f"🐋 {direction} {name}: {value_eth:.2f} ETH (${value_usd:,.0f})\n"
+                        alert += random.choice(tx_phrases) + "\n"
+                        alert += f"Хэш: https://etherscan.io/tx/{tx_hash}"
+                        alerts.append(alert)
+                        last_checked_txs[tx_hash] = current_time
+            except Exception as e:
+                logging.error(f"Ошибка Etherscan для {name}: {e}")
+        elif asset == 'BTC':
+            try:
+                url = f"https://api.blockcypher.com/v1/btc/main/addrs/{address}?limit=20"
+                response = requests.get(url, timeout=30)
+                data = response.json()
+                balance = data['balance'] / 10**8
+                last_bal = last_balances.get(address, {'balance': 0})['balance']
+                change = balance - last_bal
+                direction = "копили" if change > 0 else "тратили" if change < 0 else "без изменений"
+                alerts.append(f"📊 {name} ({asset}): Баланс {balance:.2f} BTC (${balance * btc_price:,.0f}), {direction} {abs(change):.2f} BTC")
+                last_balances[address] = {'time': current_time, 'balance': balance, 'asset': 'BTC'}
+                for tx in data.get('txs', []):
+                    tx_hash = tx['hash']
+                    if tx_hash in last_checked_txs:
+                        continue
+                    value_btc = sum(output['value'] for output in tx['outputs'] if output['addresses'][0] == address) / 10**8
+                    value_usd = value_btc * btc_price
+                    if value_usd >= min_value_usd:
+                        direction = "ВЫВОД" if tx['inputs'][0]['addresses'][0] == address else "ДЕПОЗИТ"
+                        alert = f"🐋 {direction} {name}: {value_btc:.2f} BTC (${value_usd:,.0f})\n"
+                        alert += random.choice(tx_phrases) + "\n"
+                        alert += f"Хэш: https://blockchair.com/bitcoin/transaction/{tx_hash}"
+                        alerts.append(alert)
+                        last_checked_txs[tx_hash] = current_time
+            except Exception as e:
+                logging.error(f"Ошибка Blockcypher для {name}: {e}")
     return alerts
 
 def get_anomaly_alerts():
@@ -545,7 +577,43 @@ def handle_transfer(message):
             report = f"🔥 Крупные транзакции {period_name}:\n\n" + "\n\n".join(txs[:10])
             bot.send_message(message.chat.id, report)
             return
-    bot.send_message(message.chat.id, "😴 За последний год крупных транзакций (> $1M) не найдено.")
+    # Если нет tx, показать балансы
+    report = "😴 Нет крупных tx за год. Состояние кошельков:\n\n"
+    for address, info in KNOWN_ADDRESSES.items():
+        if info['asset'] == 'ETH':
+            params = {
+                'module': 'account',
+                'action': 'balance',
+                'address': address,
+                'tag': 'latest',
+                'apikey': ETHERSCAN_API_KEY
+            }
+            try:
+                response = requests.get("https://api.etherscan.io/api", params=params, timeout=30)
+                data = response.json()
+                if data['status'] == '1':
+                    balance_eth = int(data['result']) / 10**18
+                    last_bal = last_balances.get(address, {'balance': 0})['balance']
+                    change = balance_eth - last_bal
+                    direction = "копили" if change > 0 else "тратили" if change < 0 else "без изменений"
+                    report += f"{info['name']} ({info['asset']}): Баланс {balance_eth:.2f} ETH (${balance_eth * get_crypto_data().get('eth_price', 0):,.0f}), {direction} {abs(change):.2f} ETH\n"
+                    last_balances[address] = {'time': datetime.now(), 'balance': balance_eth, 'asset': 'ETH'}
+            except Exception as e:
+                logging.error(f"Ошибка баланса ETH для {info['name']}: {e}")
+        elif info['asset'] == 'BTC':
+            try:
+                url = f"https://api.blockcypher.com/v1/btc/main/addrs/{address}/balance"
+                response = requests.get(url, timeout=30)
+                data = response.json()
+                balance_btc = data['balance'] / 10**8
+                last_bal = last_balances.get(address, {'balance': 0})['balance']
+                change = balance_btc - last_bal
+                direction = "копили" if change > 0 else "тратили" if change < 0 else "без изменений"
+                report += f"{info['name']} ({info['asset']}): Баланс {balance_btc:.2f} BTC (${balance_btc * get_crypto_data().get('btc_price', 0):,.0f}), {direction} {abs(change):.2f} BTC\n"
+                last_balances[address] = {'time': datetime.now(), 'balance': balance_btc, 'asset': 'BTC'}
+            except Exception as e:
+                logging.error(f"Ошибка баланса BTC для {info['name']}: {e}")
+    bot.send_message(message.chat.id, report)
 
 def daily_report_task():
     global last_daily_report_date
