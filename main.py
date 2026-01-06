@@ -613,6 +613,7 @@ def send_past_analysis():
 
 def send_transaction_alerts():
     txs = get_large_transfers()
+
     if txs
         for alert in txs:
             try:
