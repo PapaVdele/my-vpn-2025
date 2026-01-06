@@ -71,7 +71,6 @@ KNOWN_ADDRESSES = {
     '0x2910543Af39abA0Cd09dBb2D50200b3E800A63D2': 'Kraken Hot Wallet',  # Дубликат
     '0xA9D1e08C7793af67e9d92fe308d5697FB81d3E43': 'Coinbase Hot Wallet'  # Дубликат
     # Добавлены новые ETH-адреса из списка (без BTC, так как Etherscan для ETH)
-    # Примечание: BTC-адреса из списка не добавлены, так как бот на Etherscan (ETH)
 }
 
 def is_stable(coin):
@@ -613,8 +612,7 @@ def send_past_analysis():
 
 def send_transaction_alerts():
     txs = get_large_transfers()
-
-    if txs
+    if txs:
         for alert in txs:
             try:
                 bot.send_message(GROUP_CHAT_ID, alert)
