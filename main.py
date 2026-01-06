@@ -6,7 +6,7 @@
 # Фразы: по 5 вариантов для каждого блока, нейтральный стиль
 # Анализ: репост алертов с изменением цены >5%
 # Хайп-флаг в алертах
-# Патчи: фикс NameError (определены все фразы), конфликт polling (single instance), timeout (увеличен до 30), alert_phrases (добавлена), daily_report_titles (добавлена), logging для команд, фикс отправки отчётов
+# Патчи: фикс NameError (определены все фразы), конфликт polling (single instance), timeout (увеличен до 30), daily_report_titles/alert_phrases (добавлены), logging для команд, фикс отправки отчётов
 
 import telebot
 import requests
@@ -237,7 +237,7 @@ def final_day_report():
     msg += "\nИсточник: CoinGecko"
     return msg
 
-def get_large_transfers(min_value_usd=1000000):
+def get_large_transfers(start_time=None, min_value_usd=1000000):
     alerts = []
     eth_price = get_crypto_data().get('eth_price', 0)
     if eth_price == 0 or not ETHERSCAN_API_KEY:
@@ -261,6 +261,9 @@ def get_large_transfers(min_value_usd=1000000):
                 logging.error(f"Ошибка Etherscan для {name}: {data.get('message')}")
                 continue
             for tx in data['result']:
+                tx_time = datetime.fromtimestamp(int(tx['timeStamp']))
+                if start_time and tx_time < start_time:
+                    continue
                 tx_hash = tx['hash']
                 if tx_hash in last_checked_txs:
                     continue
